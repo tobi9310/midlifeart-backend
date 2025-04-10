@@ -47,3 +47,9 @@ app.post('/submit', upload.none(), async (req, res) => {
     res.status(500).json({ error: 'Fehler beim E-Mail-Versand.' });
   }
 });
+
+const server = app.listen(port, () => {
+  console.log(`Server läuft auf Port ${port}`);
+});
+
+module.exports = server;
