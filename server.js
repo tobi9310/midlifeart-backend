@@ -56,6 +56,52 @@ for (let key in formData) {
   }
 });
 
+app.post('/upload', upload.fields([
+  { name: 'buchcover', maxCount: 1 },
+  { name: 'buchinhalt', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const formData = req.body;
+    const files = req.files;
+
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.strato.de',
+      port: 465,
+      secure: true,
+      auth: {
+        user: process.env.SENDER_EMAIL,
+        pass: process.env.SMTP_PASSWORD,
+      },
+    });
+
+    const emailText = `Neuer Druckdaten-Upload\n\nBuchtitel: ${formData.buchTitel}\n\nEs wurden 2 PDF-Dateien hochgeladen:\n- ${files.buchcover?.[0]?.originalname}\n- ${files.buchinhalt?.[0]?.originalname}`;
+
+    const mailOptions = {
+      from: process.env.SENDER_EMAIL,
+      to: process.env.RECEIVER_EMAIL,
+      subject: 'Neuer Druckdaten-Upload vom Kunden',
+      text: emailText,
+      attachments: [
+        {
+          filename: files.buchcover?.[0]?.originalname || 'buchcover.pdf',
+          content: files.buchcover?.[0]?.buffer
+        },
+        {
+          filename: files.buchinhalt?.[0]?.originalname || 'buchinhalt.pdf',
+          content: files.buchinhalt?.[0]?.buffer
+        }
+      ]
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.status(200).json({ message: 'Upload erfolgreich übermittelt.' });
+  } catch (error) {
+    console.error('Fehler beim Upload-Versand:', error);
+    res.status(500).json({ error: 'Upload fehlgeschlagen.' });
+  }
+});
+
+
 const server = app.listen(port, () => {
   console.log(`Server läuft auf Port ${port}`);
 });
