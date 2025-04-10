@@ -27,10 +27,18 @@ app.post('/submit', upload.none(), async (req, res) => {
     });
 
     // E-Mail-Inhalt vorbereiten
-    let text = 'Neue Auszahlungskonto-Übermittlung:\n\n';
-    for (let key in formData) {
-      text += `${key}: ${formData[key]}\n`;
-    }
+  let text = 'Neue Auszahlungskonto Übermittlung:\n\n';
+const labels = {
+  kontoinhaber: "Kontoinhaber",
+  bank: "Bank",
+  iban: "IBAN"
+};
+
+for (let key in formData) {
+  const label = labels[key] || key;
+  text += `${label}: ${formData[key]}\n`;
+}
+
 
     // E-Mail absenden
     const info = await transporter.sendMail({
