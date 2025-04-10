@@ -5,7 +5,8 @@ const app = express();
 const port = process.env.PORT || 3000;
 const cors = require('cors');
 const multer = require('multer');
-const upload = multer(); // Keine Dateien, nur Textfelder
+const upload = multer({ storage: multer.memoryStorage() });
+
 
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: true }));
