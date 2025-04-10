@@ -4,8 +4,10 @@ const nodemailer = require('nodemailer');
 const app = express();
 const port = process.env.PORT || 3000;
 const cors = require('cors');
-app.use(cors());
+const multer = require('multer');
+const upload = multer(); // Keine Dateien, nur Textfelder
 
+app.use(cors());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
