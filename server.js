@@ -11,7 +11,7 @@ app.use(cors());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
-app.post('/submit', async (req, res) => {
+app.post('/submit', upload.none(), async (req, res) => {
   try {
     const formData = req.body;
 
@@ -46,12 +46,4 @@ app.post('/submit', async (req, res) => {
     console.error('Fehler beim E-Mail-Versand:', error);
     res.status(500).json({ error: 'Fehler beim E-Mail-Versand.' });
   }
-});
-
-app.get('/', (req, res) => {
-  res.send('Backend läuft!');
-});
-
-app.listen(port, () => {
-  console.log(`Server läuft auf Port ${port}`);
 });
