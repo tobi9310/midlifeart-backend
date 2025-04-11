@@ -102,36 +102,30 @@ app.post('/upload', upload.fields([
   }
 });
 
-app.post('/inserat', upload.single('autorenbild'), async (req, res) => {
-  try {
-    const formData = req.body;
-    const datei = req.file; // Autorenbild (optional)
+async function submitInseratForm(event) {
+  event.preventDefault();
+  const form = document.getElementById("form-inserat1");
+  const formData = new FormData(form);
 
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.strato.de',
-      port: 465,
-      secure: true,
-      auth: {
-        user: process.env.SENDER_EMAIL,
-        pass: process.env.SMTP_PASSWORD,
-      },
+  try {
+    const response = await fetch("https://midlifeart-backend-1.onrender.com/inserat", {
+      method: "POST",
+      body: formData
     });
 
-    let text = 'Neues Buchinserat übermittelt:\n\n';
-    for (let key in formData) {
-      text += `${key}: ${formData[key]}\n`;
-    }
+    const result = await response.json();
 
-    const mailOptions = {
-      from: process.env.SENDER_EMAIL,
-      to: process.env.RECEIVER_EMAIL,
-      subject: 'Neues Buchinserat vom Kunden',
-      text: text,
-      attachments: datei ? [{
-        filename: datei.originalname || 'autorenbild.jpg',
-        content: datei.buffer
-      }] : []
-    };
+    if (response.ok) {
+      zeigeHinweis("Dein Buchinserat wurde erfolgreich übermittelt.");
+      form.reset();
+    } else {
+      zeigeHinweis("Fehler beim Senden: " + result.error, "#f8d7da");
+    }
+  } catch (error) {
+    zeigeHinweis("Fehler beim Senden: " + error.message, "#f8d7da");
+  }
+}
+
 
     await transporter.sendMail(mailOptions);
     res.status(200).json({ message: 'Inserat erfolgreich übermittelt.' });
