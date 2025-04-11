@@ -188,6 +188,20 @@ app.post("/save-buchtitel", express.json(), async (req, res) => {
   }
 });
 
+// Buchtitel an /save-buchtitel senden
+const buchtitelInput = document.querySelector("#form-upload1 input[name='buchtitel']");
+if (buchtitelInput && buchtitelInput.value.trim() !== "") {
+  fetch("https://www.midlifeart.de/save-buchtitel", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ buchtitel: buchtitelInput.value.trim() })
+  }).then(res => res.json())
+    .then(data => console.log("Buchtitel gespeichert:", data.message))
+    .catch(err => console.error("Fehler beim Speichern des Buchtitels:", err));
+}
+
 
 const server = app.listen(port, () => {
   console.log(`Server läuft auf Port ${port}`);
