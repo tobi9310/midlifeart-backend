@@ -60,7 +60,7 @@ for (let key in formData) {
 app.post('/upload', upload.fields([
   { name: 'buchcover', maxCount: 1 },
   { name: 'buchinhalt', maxCount: 1 }
-]), async (req, res) => {
+]),         async (req, res) => {
   try {
     const formData = req.body;
     const files = req.files;
@@ -101,6 +101,46 @@ app.post('/upload', upload.fields([
     res.status(500).json({ error: 'Upload fehlgeschlagen.' });
   }
 });
+
+app.post('/inserat', upload.single('autorenbild'), async (req, res) => {
+  try {
+    const formData = req.body;
+    const datei = req.file; // Autorenbild (optional)
+
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.strato.de',
+      port: 465,
+      secure: true,
+      auth: {
+        user: process.env.SENDER_EMAIL,
+        pass: process.env.SMTP_PASSWORD,
+      },
+    });
+
+    let text = 'Neues Buchinserat übermittelt:\n\n';
+    for (let key in formData) {
+      text += `${key}: ${formData[key]}\n`;
+    }
+
+    const mailOptions = {
+      from: process.env.SENDER_EMAIL,
+      to: process.env.RECEIVER_EMAIL,
+      subject: 'Neues Buchinserat vom Kunden',
+      text: text,
+      attachments: datei ? [{
+        filename: datei.originalname || 'autorenbild.jpg',
+        content: datei.buffer
+      }] : []
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.status(200).json({ message: 'Inserat erfolgreich übermittelt.' });
+  } catch (error) {
+    console.error('Fehler beim Buchinserat:', error);
+    res.status(500).json({ error: 'Inserat fehlgeschlagen.' });
+  }
+});
+
 
 
 const server = app.listen(port, () => {
