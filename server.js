@@ -102,39 +102,57 @@ app.post('/upload', upload.fields([
   }
 });
 
-async function submitInseratForm(event) {
-  event.preventDefault();
-  const form = document.getElementById("form-inserat1");
-  const formData = new FormData(form);
-
+app.post('/inserat', upload.single('autorenbild'), async (req, res) => {
   try {
-    const response = await fetch("https://midlifeart-backend-1.onrender.com/inserat", {
-      method: "POST",
-      body: formData
+    const formData = req.body;
+    const datei = req.file; // Autorenbild
+
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.strato.de',
+      port: 465,
+      secure: true,
+      auth: {
+        user: process.env.SENDER_EMAIL,
+        pass: process.env.SMTP_PASSWORD,
+      },
     });
 
-    const result = await response.json();
+    // Labels für schönere Ausgabe
+    const labels = {
+      buchtitel: "Buchtitel",
+      inhaltsangabe: "Inhaltsangabe",
+      autorenname: "Autorenname",
+      autorenbeschreibung: "Autorenbeschreibung",
+      verkaufspreis: "Verkaufspreis"
+    };
 
-    if (response.ok) {
-      zeigeHinweis("Dein Buchinserat wurde erfolgreich übermittelt.");
-      form.reset();
-    } else {
-      zeigeHinweis("Fehler beim Senden: " + result.error, "#f8d7da");
+    // Nachrichtentext zusammensetzen
+    let text = "Neues Buchinserat vom Kunden:\n\n";
+    for (let key in formData) {
+      const label = labels[key] || key;
+      text += `${label}: ${formData[key]}\n\n`;
     }
-  } catch (error) {
-    zeigeHinweis("Fehler beim Senden: " + error.message, "#f8d7da");
-  }
-}
 
+    // E-Mail-Optionen
+    const mailOptions = {
+      from: process.env.SENDER_EMAIL,
+      to: process.env.RECEIVER_EMAIL,
+      subject: "Neues Buchinserat eingegangen",
+      text: text,
+      attachments: datei ? [{
+        filename: datei.originalname || 'autorenbild.jpg',
+        content: datei.buffer
+      }] : []
+    };
 
     await transporter.sendMail(mailOptions);
-    res.status(200).json({ message: 'Inserat erfolgreich übermittelt.' });
+    res.status(200).json({ message: 'Inserat erfolgreich gesendet.' });
+
   } catch (error) {
-    console.error('Fehler beim Buchinserat:', error);
-    res.status(500).json({ error: 'Inserat fehlgeschlagen.' });
+    console.error('Fehler beim Inserat-Versand:', error);
+    res.status(500).json({ error: 'Fehler beim Inserat-Versand.' });
   }
 });
-
 
 
 const server = app.listen(port, () => {
