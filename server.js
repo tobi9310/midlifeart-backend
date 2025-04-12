@@ -188,43 +188,6 @@ app.post("/save-buchtitel", express.json(), async (req, res) => {
   }
 });
 
-app.post("/save-buchtitel", async (req, res) => {
-  try {
-    const { buchtitel } = req.body;
-
-    const response = await fetch("https://midlifeart.myshopify.com/admin/api/2023-10/customers/" + req.headers["customer-id"] + "/metafields.json", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_TOKEN,
-      },
-      body: JSON.stringify({
-        metafield: {
-          namespace: "dashboard",
-          key: "buchtitel",
-          value: buchtitel,
-          type: "single_line_text_field",
-        }
-      })
-    });
-
-    const result = await response.json();
-
-    if (response.ok) {
-      res.status(200).json({ message: "Buchtitel gespeichert" });
-    } else {
-      console.error("Shopify-Fehler:", result);
-      res.status(500).json({ error: "Fehler beim Speichern." });
-    }
-  } catch (error) {
-    console.error("Serverfehler:", error);
-    res.status(500).json({ error: "Interner Serverfehler" });
-  }
-});
-
-  }
-});
-
 const server = app.listen(port, () => {
   console.log(`Server läuft auf Port ${port}`);
 });
