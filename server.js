@@ -181,10 +181,10 @@ app.post("/save-buchtitel", async (req, res) => {
   }
 });
 
-// Projektliste auslesen
 app.get("/get-projekte", async (req, res) => {
   try {
-    const response = await fetch("https://midlifeart.myshopify.com/admin/api/2023-10/customers.json?fields=id,email,metafields", {
+    // Alle Kunden holen (ohne Einschränkung auf Metafelder)
+    const response = await fetch("https://midlifeart.myshopify.com/admin/api/2023-10/customers.json", {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -198,6 +198,7 @@ app.get("/get-projekte", async (req, res) => {
     const projektliste = [];
 
     for (const kunde of kunden) {
+      // Metafelder einzeln pro Kunde laden
       const metaRes = await fetch(`https://midlifeart.myshopify.com/admin/api/2023-10/customers/${kunde.id}/metafields.json`, {
         headers: {
           "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
@@ -208,6 +209,7 @@ app.get("/get-projekte", async (req, res) => {
       const metaData = await metaRes.json();
       const metas = metaData.metafields || [];
 
+      // Achtung: Namespace ist global (nicht dashboard!)
       const projekt = metas.find(x => x.namespace === "global" && x.key === "projekt");
       const buchtitel = metas.find(x => x.namespace === "global" && x.key === "buchtitel");
 
@@ -227,6 +229,7 @@ app.get("/get-projekte", async (req, res) => {
     res.status(500).json({ error: "Fehler beim Holen der Projekte" });
   }
 });
+
 
 // Server starten
 const server = app.listen(port, () => {
