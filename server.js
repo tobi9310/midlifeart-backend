@@ -25,9 +25,7 @@ app.post('/submit', upload.none(), async (req, res) => {
       },
     });
 
-    let text = 'Neue Auszahlungskonto Übermittlung:
-
-';
+  let text = 'Neue Auszahlungskonto Übermittlung:\n\n';
     const labels = { kontoinhaber: "Kontoinhaber", bank: "Bank", iban: "IBAN" };
     for (let key in formData) {
       const label = labels[key] || key;
