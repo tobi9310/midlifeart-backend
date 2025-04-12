@@ -267,6 +267,56 @@ app.get("/projekte", async (req, res) => {
   }
 });
 
+// Projekte aus Shopify holen für Admin-Panel
+app.get('/get-projekte', async (req, res) => {
+  try {
+    const response = await fetch('https://midlifeart.myshopify.com/admin/api/2023-10/customers.json?fields=id,email,metafields', {
+      method: 'GET',
+      headers: {
+        'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_TOKEN,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+
+    if (!data.customers) {
+      return res.status(500).json({ error: 'Keine Kunden gefunden.' });
+    }
+
+    const projekte = [];
+
+    for (const kunde of data.customers) {
+      const metafeldRes = await fetch(`https://midlifeart.myshopify.com/admin/api/2023-10/customers/${kunde.id}/metafields.json`, {
+        method: 'GET',
+        headers: {
+          'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_TOKEN,
+          'Content-Type': 'application/json',
+        }
+      });
+
+      const metafeldData = await metafeldRes.json();
+
+      const projekt = metafeldData.metafields.find(m => m.namespace === 'dashboard' && m.key === 'projekt');
+      const buchtitel = metafeldData.metafields.find(m => m.namespace === 'dashboard' && m.key === 'buchtitel');
+
+      if (projekt && buchtitel) {
+        projekte.push({
+          label: `${projekt.value} – ${buchtitel.value}`,
+          value: `${projekt.value}-${buchtitel.value}`
+        });
+      }
+    }
+
+    res.json(projekte);
+  } catch (error) {
+    console.error('Fehler beim Laden der Projekte:', error);
+    res.status(500).json({ error: 'Interner Serverfehler beim Laden der Projekte.' });
+  }
+});
+
+
 
 const server = app.listen(port, () => {
   console.log(`Server läuft auf Port ${port}`);
