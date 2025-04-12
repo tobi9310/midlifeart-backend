@@ -215,15 +215,19 @@ app.get("/get-projekte", async (req, res) => {
       const projekt = metas.find(x => x.namespace === "dashboard" && x.key === "projekt");
       const buchtitel = metas.find(x => x.namespace === "dashboard" && x.key === "buchtitel");
 
-      if (projekt && buchtitel) {
-        projektliste.push({
-          id: kunde.id,
-          email: kunde.email,
-          projekt: projekt.value,
-          buchtitel: buchtitel.value
-        });
-      }
-    }
+     console.log("projekt:", projekt);
+console.log("buchtitel:", buchtitel);
+
+if (projekt && buchtitel) {
+  projektliste.push({
+    id: kunde.id,
+    email: kunde.email,
+    projekt: projekt.value,
+    buchtitel: buchtitel.value
+  });
+} else {
+  console.log("⚠️ Projekt oder Buchtitel fehlen – wird nicht gepusht");
+}
 
     res.json(projektliste);
   } catch (error) {
