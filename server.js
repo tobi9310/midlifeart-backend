@@ -210,8 +210,8 @@ app.get("/get-projekte", async (req, res) => {
       const metas = metaData.metafields || [];
 
       // Achtung: Namespace ist global (nicht dashboard!)
-      const projekt = metas.find(x => x.namespace === "global" && x.key === "projekt");
-      const buchtitel = metas.find(x => x.namespace === "global" && x.key === "buchtitel");
+      const projekt = metas.find(x => x.namespace === "dashboard" && x.key === "projekt");
+      const buchtitel = metas.find(x => x.namespace === "dashboard" && x.key === "buchtitel");
 
       if (projekt && buchtitel) {
         projektliste.push({
