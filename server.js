@@ -222,6 +222,51 @@ app.post("/save-buchtitel", async (req, res) => {
   }
 });
 
+app.get("/projekte", async (req, res) => {
+  try {
+    const response = await fetch("https://midlifeart.myshopify.com/admin/api/2023-10/customers.json?fields=id,first_name,last_name,metafields", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_TOKEN,
+      }
+    });
+
+    const data = await response.json();
+    const kunden = data.customers || [];
+
+    const projektliste = [];
+
+    for (const kunde of kunden) {
+      // Lade Metafelder des Kunden
+      const metaRes = await fetch(`https://midlifeart.myshopify.com/admin/api/2023-10/customers/${kunde.id}/metafields.json`, {
+        headers: {
+          "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_TOKEN,
+          "Content-Type": "application/json"
+        }
+      });
+      const metaData = await metaRes.json();
+      const metas = metaData.metafields;
+
+      const projekt = metas.find(m => m.namespace === "dashboard" && m.key === "projekt");
+      const buchtitel = metas.find(m => m.namespace === "dashboard" && m.key === "buchtitel");
+
+      if (projekt && buchtitel) {
+        projektliste.push({
+          projekt: projekt.value,
+          buchtitel: buchtitel.value,
+          kennung: `${projekt.value}-${buchtitel.value.replace(/\s+/g, '-').toLowerCase()}`
+        });
+      }
+    }
+
+    res.json(projektliste);
+  } catch (error) {
+    console.error("Fehler beim Laden der Projekte:", error);
+    res.status(500).json({ error: "Fehler beim Laden der Projekte." });
+  }
+});
+
 
 const server = app.listen(port, () => {
   console.log(`Server läuft auf Port ${port}`);
