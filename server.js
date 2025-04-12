@@ -150,7 +150,7 @@ app.get("/get-projekte", async (req, res) => {
   try {
     console.log("Starte /get-projekte...");
 
- const response = await fetch("https://midlifeart.myshopify.com/admin/api/2023-10/customers.json?fields=id,email", {
+ const response = await fetch("https://7456d9-4.myshopify.com/admin/api/2023-10/customers.json?fields=id,email", {
 
       method: "GET",
       headers: {
@@ -174,7 +174,7 @@ app.get("/get-projekte", async (req, res) => {
     for (const kunde of kunden) {
       console.log(`Bearbeite Kunde ${kunde.id} (${kunde.email})`);
 
-      const metaRes = await fetch(`https://midlifeart.myshopify.com/admin/api/2023-10/customers/${kunde.id}/metafields.json`, {
+      const metaRes = await fetch(`https://7456d9-4.myshopify.com/admin/api/2023-10/customers/${kunde.id}/metafields.json`, {
         headers: {
           "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
           "Content-Type": "application/json"
