@@ -150,7 +150,8 @@ app.get("/get-projekte", async (req, res) => {
   try {
     console.log("Starte /get-projekte...");
 
-    const response = await fetch("https://midlifeart.myshopify.com/admin/api/2023-10/customers.json", {
+ const response = await fetch("https://midlifeart.myshopify.com/admin/api/2023-10/customers.json?fields=id,email", {
+
       method: "GET",
       headers: {
         "Content-Type": "application/json",
