@@ -146,9 +146,10 @@ app.post('/inserat', upload.single('autorenbild'), async (req, res) => {
   }
 });
 
-// Projektliste auslesen
 app.get("/get-projekte", async (req, res) => {
   try {
+    console.log("Starte /get-projekte...");
+
     const response = await fetch("https://midlifeart.myshopify.com/admin/api/2023-10/customers.json", {
       method: "GET",
       headers: {
@@ -158,11 +159,20 @@ app.get("/get-projekte", async (req, res) => {
     });
 
     const data = await response.json();
+
+    if (!response.ok) {
+      console.error("Fehler beim Laden der Kunden:", data);
+      return res.status(500).json({ error: "Fehler beim Laden der Kunden", details: data });
+    }
+
     const kunden = data.customers || [];
+    console.log(`Anzahl Kunden: ${kunden.length}`);
 
     const projektliste = [];
 
     for (const kunde of kunden) {
+      console.log(`Bearbeite Kunde ${kunde.id} (${kunde.email})`);
+
       const metaRes = await fetch(`https://midlifeart.myshopify.com/admin/api/2023-10/customers/${kunde.id}/metafields.json`, {
         headers: {
           "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
@@ -171,12 +181,17 @@ app.get("/get-projekte", async (req, res) => {
       });
 
       const metaData = await metaRes.json();
+
+      if (!metaRes.ok) {
+        console.error(`Fehler beim Laden der Metafelder von Kunde ${kunde.id}:`, metaData);
+        continue;
+      }
+
       const metas = metaData.metafields || [];
+      console.log(`→ Metafelder gefunden (${metas.length}):`, metas.map(x => `${x.namespace}.${x.key} = ${x.value}`));
 
-      console.log("Gefundene Metafelder:", metas.map(x => `${x.namespace}.${x.key} = ${x.value}`));
-
-      const projekt = metas.find(x => x.namespace === "dashboard.projekt" && x.key === "projekt");
-      const buchtitel = metas.find(x => x.namespace === "dashboard.buchtitel" && x.key === "buchtitel");
+      const projekt = metas.find(x => x.namespace === "dashboard" && x.key === "projekt");
+      const buchtitel = metas.find(x => x.namespace === "dashboard" && x.key === "buchtitel");
 
       if (projekt && buchtitel) {
         projektliste.push({
@@ -186,16 +201,19 @@ app.get("/get-projekte", async (req, res) => {
           buchtitel: buchtitel.value
         });
       } else {
-        console.log("⚠️ Projekt oder Buchtitel fehlen – wird nicht gepusht");
+        console.warn(`→ ⚠️ Projekt oder Buchtitel fehlt bei Kunde ${kunde.id}`);
       }
     }
 
+    console.log("FERTIG – Projektliste:", projektliste);
     res.json(projektliste);
+
   } catch (error) {
     console.error("Fehler beim Holen der Projekte:", error);
-    res.status(500).json({ error: "Fehler beim Holen der Projekte" });
+    res.status(500).json({ error: "Fehler beim Holen der Projekte", details: error.message });
   }
 });
+
 
 // Server starten
 const server = app.listen(port, () => {
