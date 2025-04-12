@@ -175,8 +175,8 @@ app.get("/get-projekte", async (req, res) => {
 
       console.log("Gefundene Metafelder:", metas.map(x => `${x.namespace}.${x.key} = ${x.value}`));
 
-      const projekt = metas.find(x => x.namespace === "dashboard" && x.key === "projekt");
-      const buchtitel = metas.find(x => x.namespace === "dashboard" && x.key === "buchtitel");
+      const projekt = metas.find(x => x.namespace === "dashboard.projekt" && x.key === "projekt");
+      const buchtitel = metas.find(x => x.namespace === "dashboard.buchtitel" && x.key === "buchtitel");
 
       if (projekt && buchtitel) {
         projektliste.push({
