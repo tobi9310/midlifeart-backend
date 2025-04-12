@@ -1,12 +1,11 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const nodemailer = require('nodemailer');
-const app = express();
-const port = process.env.PORT || 3000;
 const cors = require('cors');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
-
+const app = express();
+const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -15,10 +14,8 @@ app.use(bodyParser.json());
 app.post('/submit', upload.none(), async (req, res) => {
   try {
     const formData = req.body;
-
-    // Transporter für STRATO SMTP
     const transporter = nodemailer.createTransport({
-      host: 'smtp.strato.de',
+host: 'smtp.strato.de',
       port: 465,
       secure: true,
       auth: {
@@ -27,29 +24,25 @@ app.post('/submit', upload.none(), async (req, res) => {
       },
     });
 
-    // E-Mail-Inhalt vorbereiten
-  let text = 'Neue Auszahlungskonto Übermittlung:\n\n';
-const labels = {
-  kontoinhaber: "Kontoinhaber",
-  bank: "Bank",
-  iban: "IBAN"
-};
+    let text = 'Neue Auszahlungskonto Übermittlung:\n\n';
+    const labels = {
+      kontoinhaber: "Kontoinhaber",
+      bank: "Bank",
+      iban: "IBAN"
+    };
 
-for (let key in formData) {
-  const label = labels[key] || key;
-  text += `${label}: ${formData[key]}\n`;
-}
+    for (let key in formData) {
+      const label = labels[key] || key;
+      text += `${label}: ${formData[key]}\n`;
+    }
 
-
-    // E-Mail absenden
-    const info = await transporter.sendMail({
+    await transporter.sendMail({
       from: process.env.SENDER_EMAIL,
       to: process.env.RECEIVER_EMAIL,
       subject: 'Neue Bankdaten vom Kunden',
       text: text,
     });
 
-    console.log('E-Mail gesendet:', info.response);
     res.status(200).json({ message: 'E-Mail erfolgreich gesendet.' });
   } catch (error) {
     console.error('Fehler beim E-Mail-Versand:', error);
@@ -60,13 +53,12 @@ for (let key in formData) {
 app.post('/upload', upload.fields([
   { name: 'buchcover', maxCount: 1 },
   { name: 'buchinhalt', maxCount: 1 }
-]),         async (req, res) => {
+]), async (req, res) => {
   try {
     const formData = req.body;
     const files = req.files;
-
     const transporter = nodemailer.createTransport({
-      host: 'smtp.strato.de',
+host: 'smtp.strato.de',
       port: 465,
       secure: true,
       auth: {
@@ -105,10 +97,10 @@ app.post('/upload', upload.fields([
 app.post('/inserat', upload.single('autorenbild'), async (req, res) => {
   try {
     const formData = req.body;
-    const datei = req.file; // Autorenbild
+    const datei = req.file;
 
     const transporter = nodemailer.createTransport({
-      host: 'smtp.strato.de',
+host: 'smtp.strato.de',
       port: 465,
       secure: true,
       auth: {
@@ -117,7 +109,6 @@ app.post('/inserat', upload.single('autorenbild'), async (req, res) => {
       },
     });
 
-    // Labels für schönere Ausgabe
     const labels = {
       buchtitel: "Buchtitel",
       inhaltsangabe: "Inhaltsangabe",
@@ -126,14 +117,12 @@ app.post('/inserat', upload.single('autorenbild'), async (req, res) => {
       verkaufspreis: "Verkaufspreis"
     };
 
-    // Nachrichtentext zusammensetzen
     let text = "Neues Buchinserat vom Kunden:\n\n";
     for (let key in formData) {
       const label = labels[key] || key;
       text += `${label}: ${formData[key]}\n\n`;
     }
 
-    // E-Mail-Optionen
     const mailOptions = {
       from: process.env.SENDER_EMAIL,
       to: process.env.RECEIVER_EMAIL,
@@ -158,7 +147,7 @@ app.post("/save-buchtitel", express.json(), async (req, res) => {
   try {
     const { customerId, buchtitel } = req.body;
 
-    const response = await fetch(`https://www.midlifeart.de/admin/api/2023-10/customers/${customerId}/metafields.json`, {
+const response = await fetch(`https://www.midlifeart.de/admin/api/2023-10/customers/${customerId}/metafields.json`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -185,6 +174,55 @@ app.post("/save-buchtitel", express.json(), async (req, res) => {
   } catch (error) {
     console.error("Serverfehler:", error);
     res.status(500).json({ error: "Interner Serverfehler" });
+  }
+});
+
+app.get("/get-projekte", async (req, res) => {
+  try {
+const response = await fetch("https://midlifeart.myshopify.com/admin/api/2023-10/customers.json?fields=id,email,metafields", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN
+      }
+    });
+
+    const data = await response.json();
+    if (!data.customers) {
+      return res.status(500).json({ error: "Keine Kunden gefunden." });
+    }
+
+    const projektliste = [];
+
+    for (const kunde of data.customers) {
+const metaRes = await fetch(`https://midlifeart.myshopify.com/admin/api/2023-10/customers/${kunde.id}/metafields.json`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN
+        }
+      });
+
+      const metaData = await metaRes.json();
+      const metas = metaData.metafields;
+
+      const projekt = metas.find(x => x.namespace === "dashboard" && x.key === "projekt");
+      const buchtitel = metas.find(x => x.namespace === "dashboard" && x.key === "buchtitel");
+
+      if (projekt && buchtitel) {
+        projektliste.push({
+          id: kunde.id,
+          email: kunde.email,
+          projekt: projekt.value,
+          buchtitel: buchtitel.value
+        });
+      }
+    }
+
+    res.status(200).json({ projekte: projektliste });
+  } catch (error) {
+    console.error("Fehler beim Abrufen der Projekte:", error);
+    res.status(500).json({ error: "Fehler beim Abrufen der Projekte." });
   }
 });
 
