@@ -146,44 +146,9 @@ app.post('/inserat', upload.single('autorenbild'), async (req, res) => {
   }
 });
 
-// Buchtitel speichern
-app.post("/save-buchtitel", async (req, res) => {
-  try {
-    const { customerId, buchtitel } = req.body;
-
-    const response = await fetch(`https://midlifeart.myshopify.com/admin/api/2023-10/customers/${customerId}/metafields.json`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
-      },
-      body: JSON.stringify({
-        metafield: {
-          namespace: "dashboard",
-          key: "buchtitel",
-          value: buchtitel,
-          type: "single_line_text_field"
-        }
-      }),
-    });
-
-    const result = await response.json();
-
-    if (response.ok) {
-      res.status(200).json({ message: "Buchtitel gespeichert!" });
-    } else {
-      console.error("Shopify-Fehler:", result);
-      res.status(500).json({ error: "Fehler beim Speichern." });
-    }
-  } catch (error) {
-    console.error("Serverfehler:", error);
-    res.status(500).json({ error: "Interner Serverfehler" });
-  }
-});
-
+// Projektliste auslesen
 app.get("/get-projekte", async (req, res) => {
   try {
-    // Alle Kunden holen (ohne Einschränkung auf Metafelder)
     const response = await fetch("https://midlifeart.myshopify.com/admin/api/2023-10/customers.json", {
       method: "GET",
       headers: {
@@ -198,7 +163,6 @@ app.get("/get-projekte", async (req, res) => {
     const projektliste = [];
 
     for (const kunde of kunden) {
-      // Metafelder einzeln pro Kunde laden
       const metaRes = await fetch(`https://midlifeart.myshopify.com/admin/api/2023-10/customers/${kunde.id}/metafields.json`, {
         headers: {
           "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
@@ -211,23 +175,20 @@ app.get("/get-projekte", async (req, res) => {
 
       console.log("Gefundene Metafelder:", metas.map(x => `${x.namespace}.${x.key} = ${x.value}`));
 
-      // Achtung: Namespace ist global (nicht dashboard!)
       const projekt = metas.find(x => x.namespace === "dashboard" && x.key === "projekt");
       const buchtitel = metas.find(x => x.namespace === "dashboard" && x.key === "buchtitel");
 
-     console.log("projekt:", projekt);
-console.log("buchtitel:", buchtitel);
-
-if (projekt && buchtitel) {
-  projektliste.push({
-    id: kunde.id,
-    email: kunde.email,
-    projekt: projekt.value,
-    buchtitel: buchtitel.value
-  });
-} else {
-  console.log("⚠️ Projekt oder Buchtitel fehlen – wird nicht gepusht");
-}
+      if (projekt && buchtitel) {
+        projektliste.push({
+          id: kunde.id,
+          email: kunde.email,
+          projekt: projekt.value,
+          buchtitel: buchtitel.value
+        });
+      } else {
+        console.log("⚠️ Projekt oder Buchtitel fehlen – wird nicht gepusht");
+      }
+    }
 
     res.json(projektliste);
   } catch (error) {
@@ -235,7 +196,6 @@ if (projekt && buchtitel) {
     res.status(500).json({ error: "Fehler beim Holen der Projekte" });
   }
 });
-
 
 // Server starten
 const server = app.listen(port, () => {
