@@ -208,8 +208,8 @@ app.get("/get-projekte", async (req, res) => {
       const metaData = await metaRes.json();
       const metas = metaData.metafields || [];
 
-      const projekt = metas.find(x => x.namespace === "dashboard" && x.key === "projekt");
-      const buchtitel = metas.find(x => x.namespace === "dashboard" && x.key === "buchtitel");
+      const projekt = metas.find(x => x.namespace === "global" && x.key === "projekt");
+      const buchtitel = metas.find(x => x.namespace === "global" && x.key === "buchtitel");
 
       if (projekt && buchtitel) {
         projektliste.push({
