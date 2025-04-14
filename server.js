@@ -215,6 +215,9 @@ app.get("/get-projekte", async (req, res) => {
   }
 });
 
+app.get("/ping", (req, res) => {
+  res.status(200).json({ message: "Server wach" });
+});
 
 // Server starten
 const server = app.listen(port, () => {
