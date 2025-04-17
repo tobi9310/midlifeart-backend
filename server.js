@@ -231,7 +231,7 @@ app.post('/create-product', async (req, res) => {
       token: process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR,
     });
 
-    res.status(200).json({ message: 'Produkt erfolgreich erstellt', produktId: response?.product?.id });
+    res.status(200).json(response);
   } catch (error) {
     console.error('Fehler beim Erstellen des Produkts:', error);
     res.status(500).json({ error: 'Produkt konnte nicht erstellt werden' });
