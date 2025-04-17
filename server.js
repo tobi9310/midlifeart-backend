@@ -4,7 +4,7 @@ const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
 const cors = require('cors');
 const multer = require('multer');
-const createProduct = require('./konfigurator/create-product');
+const { createProduct } = require('./konfigurator/create-product');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -219,6 +219,25 @@ app.get("/get-projekte", async (req, res) => {
 app.get("/ping", (req, res) => {
   res.status(200).json({ message: "Server wach" });
 });
+
+app.post('/create-product', async (req, res) => {
+  try {
+    const { title, price, description } = req.body;
+
+    const response = await createProduct({
+      title,
+      price,
+      description,
+      token: process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR,
+    });
+
+    res.status(200).json({ message: 'Produkt erfolgreich erstellt', produktId: response?.product?.id });
+  } catch (error) {
+    console.error('Fehler beim Erstellen des Produkts:', error);
+    res.status(500).json({ error: 'Produkt konnte nicht erstellt werden' });
+  }
+});
+
 
 // Server starten
 const server = app.listen(port, () => {
