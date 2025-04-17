@@ -224,16 +224,42 @@ app.post('/create-product', async (req, res) => {
   try {
     const { title, price, description } = req.body;
 
-    const response = await createProduct({
-      title,
-      price,
-      description,
-      token: process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR,
+    // Debug: Zeige alle übergebenen Werte an
+    console.log("Anfrage an createProduct:", title, price, description);
+
+    // Shopify API-Aufruf
+    const response = await fetch('https://7456d9-4.myshopify.com/admin/api/2023-10/products.json', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR
+      },
+      body: JSON.stringify({
+        product: {
+          title,
+          body_html: description,
+          variants: [
+            {
+              price: price
+            }
+          ]
+        }
+      })
     });
 
-    res.status(200).json(response);
+    const data = await response.json();
+
+    // Debug: Wenn kein Produkt zurückkommt
+    if (!data.product) {
+      console.error("❌ Kein Produkt erhalten:", data);
+      return res.status(500).json({ error: "Produkt konnte nicht erstellt werden" });
+    }
+
+    // Erfolg
+    res.status(200).json({ message: '✅ Produkt erfolgreich erstellt', produktId: data.product.id });
+
   } catch (error) {
-    console.error('Fehler beim Erstellen des Produkts:', error);
+    console.error('❌ Fehler beim Erstellen des Produkts:', error?.response?.errors || error);
     res.status(500).json({ error: 'Produkt konnte nicht erstellt werden' });
   }
 });
