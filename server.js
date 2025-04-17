@@ -4,6 +4,7 @@ const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
 const cors = require('cors');
 const multer = require('multer');
+const createProduct = require('./konfigurator/create-product');
 const app = express();
 const port = process.env.PORT || 3000;
 
