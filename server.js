@@ -256,7 +256,12 @@ app.post('/create-product', async (req, res) => {
     }
 
     // Erfolg
-    res.status(200).json({ message: '✅ Produkt erfolgreich erstellt', produktId: data.product.id });
+   const variantId = data.product.variants[0].id;
+return res.status(200).json({
+  message: '✅ Produkt erfolgreich erstellt',
+  produktId: variantId
+});
+
 
   } catch (error) {
     console.error('❌ Fehler beim Erstellen des Produkts:', error?.response?.errors || error);
