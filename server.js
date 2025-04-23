@@ -269,6 +269,42 @@ return res.status(200).json({
   }
 });
 
+// Kontaktformular
+app.post('/kontakt', upload.none(), async (req, res) => {
+  try {
+    const { contact_type, contact_name, contact_email, contact_subject, contact_message } = req.body;
+
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.strato.de',
+      port: 465,
+      secure: true,
+      auth: {
+        user: process.env.SENDER_EMAIL,
+        pass: process.env.SMTP_PASSWORD,
+      },
+    });
+
+    const text = `Neue Kontaktanfrage:\n\n` +
+                 `Ich bin: ${contact_type}\n` +
+                 `Name: ${contact_name}\n` +
+                 `E-Mail: ${contact_email}\n` +
+                 `Betreff: ${contact_subject}\n\n` +
+                 `Nachricht:\n${contact_message}`;
+
+    await transporter.sendMail({
+      from: process.env.SENDER_EMAIL,
+      to: "info@midlifeart.de",
+      subject: 'Neue Kontaktanfrage über das Formular',
+      text: text,
+    });
+
+    res.status(200).json({ message: 'Nachricht erfolgreich versendet.' });
+  } catch (error) {
+    console.error('Fehler beim Versenden des Kontaktformulars:', error);
+    res.status(500).json({ error: 'Nachricht konnte nicht gesendet werden.' });
+  }
+});
+
 
 // Server starten
 const server = app.listen(port, () => {
