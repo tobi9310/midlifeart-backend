@@ -16,7 +16,7 @@ async function createProduct({ title, price }) {
     body: JSON.stringify({
       product: {
         title: `Konfigurator: ${title}`,
-        status: "draft",   // unsichtbar
+        status: "active",   // aktiviert
         tags: "configurator-hidden,auto-delete-1h",
         variants: [
           { price: price }
