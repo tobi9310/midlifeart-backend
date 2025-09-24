@@ -1,12 +1,12 @@
 // konfigurator/create-product.js
 // Erstellt ein aktives, kaufbares Produkt per REST-API,
 // markiert es mit Tags und veröffentlicht es für den Onlineshop.
-// Rückgabe enthält legacyVariantId für /cart/add.js.
+// Rückgabe enthält die Variant-ID (legacyVariantId), die dein Konfigurator für /cart/add.js braucht.
 
 const fetch = require('node-fetch');
 
 const SHOP = '7456d9-4.myshopify.com'; // deine Shop-Domain
-const ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR; // bestehende ENV
+const ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR; // API-Token aus ENV
 
 /** Hilfsfunktion: REST-Call */
 async function shopify(path, opts = {}) {
@@ -17,7 +17,7 @@ async function shopify(path, opts = {}) {
     },
     ...opts
   });
-  const text = await res.text(); // erst als Text lesen für bessere Fehlersicht
+  const text = await res.text();
   let json;
   try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
   if (!res.ok) {
@@ -29,14 +29,12 @@ async function shopify(path, opts = {}) {
 
 /** Produkt im Onlineshop veröffentlichen (Publication "Online Store") */
 async function publishToOnlineStore(productId) {
-  // 1) Publications laden
   const pubs = await shopify('/publications.json');
   const online = (pubs.publications || []).find(p => p.name === 'Online Store');
   if (!online) {
     console.warn('⚠️ Keine "Online Store"-Publication gefunden.', pubs);
     return;
   }
-  // 2) Produkt veröffentlichen
   await shopify(`/publications/${online.id}/published_products.json`, {
     method: 'POST',
     body: JSON.stringify({ published_product: { product_id: productId } })
@@ -49,10 +47,10 @@ async function publishToOnlineStore(productId) {
  * - setzt Tags (configurator-hidden, auto-delete-1h)
  * - Variante ohne Bestandstracking + „continue“
  * - veröffentlicht fürs Frontend (Online Store)
- * - liefert IDs inkl. legacyVariantId zurück
+ * - liefert IDs inkl. Variant-ID zurück
  */
 async function createProduct({ title, price }) {
-  // 1) Produkt anlegen (REST)
+  // 1) Produkt anlegen
   const created = await shopify('/products.json', {
     method: 'POST',
     body: JSON.stringify({
@@ -79,14 +77,14 @@ async function createProduct({ title, price }) {
   const variant = (product.variants && product.variants[0]) || null;
   if (!variant) throw new Error('❌ Keine Variante erhalten.');
 
-  // 2) Für Onlineshop veröffentlichen (damit /cart/add.js sicher geht)
+  // 2) Für Onlineshop veröffentlichen
   await publishToOnlineStore(product.id);
 
-  // 3) Ergebnis zurückgeben
+  // 3) Ergebnis zurückgeben → wichtig: legacyVariantId = Variant-ID
   return {
-    productId: product.id,         // numerische Produkt-ID (REST)
-    variantId: variant.id,         // numerische Varianten-ID (REST)
-    legacyVariantId: variant.id    // = dieselbe ID; fürs /cart/add.js verwenden
+    productId: product.id,         // Produkt-ID (intern)
+    variantId: variant.id,         // Variant-ID (REST)
+    legacyVariantId: variant.id    // = dieselbe Variant-ID → dein Konfigurator nutzt das
   };
 }
 
