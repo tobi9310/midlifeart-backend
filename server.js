@@ -344,25 +344,17 @@ app.get("/ping", (req, res) => {
 });
 
 // Neuer create-product Endpoint: nutzt die ausgelagerte Funktion
-// Neuer create-product Endpoint: nutzt die ausgelagerte Funktion
 app.post('/create-product', async (req, res) => {
   try {
     const { title, price } = req.body;
 
-    // Debug-Logs (nur vorübergehend)
-    console.log("➡️ Anfrage an createProduct:", { title, price });
-
     const result = await createProduct({ title, price });
-
-    // Noch mehr Debug-Info (vorübergehend)
-    console.log("✅ Produkt erstellt:", result);
-
-    // WICHTIG: produktId = legacyVariantId (VARIANTEN-ID) für euer Frontend
+    // WICHTIG: produktId = VARIANTEN-ID (legacyVariantId) für euer Frontend /cart/add.js
     res.status(200).json({
       message: '✅ Produkt erfolgreich erstellt',
-      produktId: result.legacyVariantId,   // <- genau das liest euer Frontend
+      produktId: result.legacyVariantId,   // <-- Frontend erwartet die Varianten-ID
       productId: result.productId,         // Zusatzinfo (Produkt-ID)
-      variantId: result.variantId,         // Zusatzinfo (Varianten-ID)
+      variantId: result.variantId,         // Zusatzinfo (Variant-ID)
       legacyVariantId: result.legacyVariantId
     });
   } catch (error) {
@@ -370,6 +362,7 @@ app.post('/create-product', async (req, res) => {
     res.status(500).json({ error: 'Produkt konnte nicht erstellt werden' });
   }
 });
+
 // Kontaktformular
 app.post('/kontakt', upload.none(), async (req, res) => {
   try {
