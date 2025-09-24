@@ -354,11 +354,12 @@ app.post('/create-product', async (req, res) => {
 
     // Antwort ans Frontend – wichtig: legacyVariantId für /cart/add.js
     res.status(200).json({
-      message: '✅ Produkt erfolgreich erstellt',
-      produktId: result.productId,
-      variantId: result.variantId,
-      legacyVariantId: result.legacyVariantId
-    });
+  message: '✅ Produkt erfolgreich erstellt',
+  produktId: result.legacyVariantId,   // ✅ für dein Frontend: die Variant-ID
+  productId: result.productId,         // optional zusätzlich für dich
+  variantId: result.variantId,
+  legacyVariantId: result.legacyVariantId
+});
   } catch (error) {
     console.error('❌ Fehler beim Erstellen des Produkts:', error);
     res.status(500).json({ error: 'Produkt konnte nicht erstellt werden' });
