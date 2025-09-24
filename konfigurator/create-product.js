@@ -1,12 +1,12 @@
 // konfigurator/create-product.js
 // Erstellt ein aktives, kaufbares Produkt per REST-API,
-// markiert es mit Tags und veröffentlicht es für den Onlineshop.
-// Rückgabe enthält die Variant-ID (legacyVariantId), die dein Konfigurator für /cart/add.js braucht.
+// markiert es mit Tags und (optional) veröffentlicht es für den Onlineshop.
+// Rückgabe enthält die Variant-ID (legacyVariantId) für /cart/add.js.
 
 const fetch = require('node-fetch');
 
 const SHOP = '7456d9-4.myshopify.com'; // deine Shop-Domain
-const ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR; // API-Token aus ENV
+const ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR; // ENV-Token
 
 /** Hilfsfunktion: REST-Call */
 async function shopify(path, opts = {}) {
@@ -46,7 +46,7 @@ async function publishToOnlineStore(productId) {
  * - legt aktives Produkt an (kaufbar)
  * - setzt Tags (configurator-hidden, auto-delete-1h)
  * - Variante ohne Bestandstracking + „continue“
- * - veröffentlicht fürs Frontend (Online Store)
+ * - versucht Veröffentlichung im Online Store (Fehler werden geloggt, aber nicht geworfen)
  * - liefert IDs inkl. Variant-ID zurück
  */
 async function createProduct({ title, price }) {
@@ -77,14 +77,18 @@ async function createProduct({ title, price }) {
   const variant = (product.variants && product.variants[0]) || null;
   if (!variant) throw new Error('❌ Keine Variante erhalten.');
 
-  // 2) Für Onlineshop veröffentlichen
-  await publishToOnlineStore(product.id);
+  // 2) Für Onlineshop veröffentlichen – NICHT blockierend
+  try {
+    await publishToOnlineStore(product.id);
+  } catch (e) {
+    console.warn('⚠️ Publish fehlgeschlagen (ignoriere):', e?.message || e);
+  }
 
   // 3) Ergebnis zurückgeben → wichtig: legacyVariantId = Variant-ID
   return {
-    productId: product.id,         // Produkt-ID (intern)
-    variantId: variant.id,         // Variant-ID (REST)
-    legacyVariantId: variant.id    // = dieselbe Variant-ID → dein Konfigurator nutzt das
+    productId: product.id,       // Produkt-ID (REST)
+    variantId: variant.id,       // Variant-ID (REST)
+    legacyVariantId: variant.id  // fürs /cart/add.js
   };
 }
 
