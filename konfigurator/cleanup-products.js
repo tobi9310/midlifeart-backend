@@ -36,8 +36,7 @@ async function listCandidates() {
   do {
     const qp = new URLSearchParams({
       limit: '250',
-      status: 'any',
-      fields: 'id,title,tags,created_at'
+      status: 'any' // alle Produkte berücksichtigen
     });
     if (pageInfo) qp.append('page_info', pageInfo);
 
@@ -46,11 +45,12 @@ async function listCandidates() {
 
     for (const p of products) {
       const tagsArr = (p.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+
       const isMarked =
         tagsArr.includes('auto-delete-1h') || tagsArr.includes('configurator-hidden');
 
       if (isMarked) {
-        out.push({ id: p.id, title: p.title });
+        out.push({ id: p.id, title: p.title, tags: tagsArr });
       }
     }
 
@@ -74,6 +74,7 @@ async function cleanupProducts() {
 
   for (const p of found) {
     try {
+      console.log('🧹 Lösche:', p.id, p.title, p.tags);
       await deleteProduct(p.id);
       deleted++;
     } catch (e) {
@@ -81,7 +82,15 @@ async function cleanupProducts() {
     }
   }
 
+  console.log(`Cleanup fertig: gefunden=${found.length}, gelöscht=${deleted}`);
   return { found: found.length, deleted };
 }
 
-module.exports = { cleanupProducts };
+/** Debug: zeigt nur die Kandidaten, löscht NICHT */
+async function scanMarked() {
+  const found = await listCandidates();
+  console.log('🔎 Scan: Kandidaten=', found);
+  return found;
+}
+
+module.exports = { cleanupProducts, scanMarked };
