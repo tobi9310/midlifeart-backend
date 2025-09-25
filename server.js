@@ -5,7 +5,7 @@ const fetch = require('node-fetch');
 const cors = require('cors');
 const multer = require('multer');
 const { createProduct } = require('./konfigurator/create-product');
-const { cleanupProducts } = require('./konfigurator/cleanup-products');
+const { cleanupProducts, scanMarked } = require('./konfigurator/cleanup-products');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -355,6 +355,21 @@ app.get('/cleanup', async (req, res) => {
     res.json({ ok: true, ...result });
   } catch (e) {
     console.error('Cleanup error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Debug: zeigt markierte Produkte (löscht NICHT)
+app.get('/cleanup/scan', async (req, res) => {
+  try {
+    const SECRET = process.env.CLEANUP_SECRET;
+    if (!SECRET || req.query.secret !== SECRET) {
+      return res.status(401).send('Unauthorized');
+    }
+    const items = await scanMarked();
+    res.json({ ok: true, found: items.length, items });
+  } catch (e) {
+    console.error('Scan error:', e);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
