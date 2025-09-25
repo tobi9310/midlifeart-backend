@@ -1,18 +1,20 @@
 // konfigurator/cleanup-products.js
 // Löscht SOFORT alle Produkte mit Tag "auto-delete-1h" ODER "configurator-hidden".
-// Plus: Debug-Scan mit Rohdaten (zeigt Kandidaten + optional ein Sample aller Produkte).
+// Zusätzlich: Debug-Scan (liefert Kandidaten + Sample der ersten Produkte).
 
 const fetch = require('node-fetch');
 
 const SHOP = '7456d9-4.myshopify.com';
-const ADMIN_TOKEN =
-  process.env.SHOPIFY_ADMIN_API_TOKEN || process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR;
+
+// WICHTIG: Cleanup nutzt bewusst den "großen" Admin-Token
+// (der auch bei /get-projekte funktioniert), nicht den Konfigurator-Token.
+const ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN;
 
 if (!ADMIN_TOKEN) {
-  console.warn('⚠️ Kein Admin-Token gefunden: setze SHOPIFY_ADMIN_API_TOKEN oder SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR');
+  console.warn('⚠️ SHOPIFY_ADMIN_API_TOKEN ist nicht gesetzt – Cleanup kann keine Produkte lesen/löschen.');
 }
 
-/** REST-Helper (liest Link-Header für Cursor-Pagination) */
+/** Minimaler REST-Helper (liest Link-Header für Cursor-Pagination) */
 async function rest(path, opts = {}) {
   const res = await fetch(`https://${SHOP}/admin/api/2023-10${path}`, {
     headers: {
@@ -21,6 +23,7 @@ async function rest(path, opts = {}) {
     },
     ...opts
   });
+
   const text = await res.text();
   let json = {};
   try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
@@ -64,7 +67,9 @@ async function listCandidates() {
     const rawTags = typeof p.tags === 'string' ? p.tags : '';
     const tagsArr = rawTags.split(',').map(t => t.trim()).filter(Boolean);
 
-    const isMarked = tagsArr.includes('auto-delete-1h') || tagsArr.includes('configurator-hidden');
+    const isMarked =
+      tagsArr.includes('auto-delete-1h') || tagsArr.includes('configurator-hidden');
+
     if (isMarked) {
       out.push({ id: p.id, title: p.title, tags: tagsArr });
     }
@@ -96,7 +101,7 @@ async function cleanupProducts() {
   return { found: found.length, deleted };
 }
 
-/** Debug: zeigt Kandidaten + optional Sample der ersten N Produkte (roh) */
+/** Debug-Scan: zeigt Kandidaten + Sample der ersten N Produkte (roh) */
 async function scanMarked(sampleSize = 20) {
   const products = await listAllProducts();
   const candidates = [];
@@ -106,17 +111,17 @@ async function scanMarked(sampleSize = 20) {
     const p = products[i];
     const rawTags = typeof p.tags === 'string' ? p.tags : '';
     const tagsArr = rawTags.split(',').map(t => t.trim()).filter(Boolean);
-    const isMarked = tagsArr.includes('auto-delete-1h') || tagsArr.includes('configurator-hidden');
+    const isMarked =
+      tagsArr.includes('auto-delete-1h') || tagsArr.includes('configurator-hidden');
 
     if (isMarked) {
       candidates.push({ id: p.id, title: p.title, tags: tagsArr });
     }
     if (sample.length < sampleSize) {
-      sample.push({ id: p.id, title: p.title, rawTags: rawTags });
+      sample.push({ id: p.id, title: p.title, rawTags });
     }
   }
 
-  console.log('🔎 Scan: Kandidaten=', candidates);
   return { candidates, sample };
 }
 
