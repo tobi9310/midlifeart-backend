@@ -374,6 +374,65 @@ app.get('/cleanup/scan', async (req, res) => {
   }
 });
 
+// Diagnose: zeigt, welcher Token genutzt wird + kann Produkte lesen?
+app.get('/cleanup/diag', async (req, res) => {
+  try {
+    const SECRET = process.env.CLEANUP_SECRET;
+    if (!SECRET || req.query.secret !== SECRET) {
+      return res.status(401).send('Unauthorized');
+    }
+
+const shop = '7456d9-4.myshopify.com';
+    const tokenName = process.env.SHOPIFY_ADMIN_API_TOKEN ? 'SHOPIFY_ADMIN_API_TOKEN'
+                      : (process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR ? 'SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR'
+                      : 'NONE');
+
+    const token = process.env.SHOPIFY_ADMIN_API_TOKEN || process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR;
+
+    let apiStatus = 'unknown';
+    let count = 0;
+    let titles = [];
+    let error = null;
+
+    try {
+      const r = await fetch(`https://${shop}/admin/api/2023-10/products.json?limit=5&status=any`, {
+        headers: {
+          'X-Shopify-Access-Token': token,
+          'Content-Type': 'application/json'
+        }
+      });
+      const txt = await r.text();
+      let j = {};
+      try { j = txt ? JSON.parse(txt) : {}; } catch { j = { raw: txt }; }
+
+      if (!r.ok) {
+        apiStatus = `${r.status}`;
+        error = j.errors || j.error || j.raw || j;
+      } else {
+        apiStatus = `${r.status}`;
+        const prods = j.products || [];
+        count = prods.length;
+        titles = prods.map(p => p.title).slice(0, 5);
+      }
+    } catch (e) {
+      apiStatus = 'fetch-failed';
+      error = e.message || String(e);
+    }
+
+    res.json({
+      ok: true,
+      shop,
+      usingTokenEnv: tokenName,
+      apiStatus,
+      sampleCount: count,
+      sampleTitles: titles,
+      error
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // Neuer create-product Endpoint: nutzt die ausgelagerte Funktion
 app.post('/create-product', async (req, res) => {
   try {
