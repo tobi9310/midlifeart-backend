@@ -5,6 +5,7 @@ const fetch = require('node-fetch');
 const cors = require('cors');
 const multer = require('multer');
 const { createProduct } = require('./konfigurator/create-product');
+const { cleanupProducts } = require('./konfigurator/cleanup-products');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -341,6 +342,21 @@ const metaRes = await fetch(`https://7456d9-4.myshopify.com/admin/api/2023-10/cu
 
 app.get("/ping", (req, res) => {
   res.status(200).json({ message: "Server wach" });
+});
+
+// Manuelles Aufräumen: GET /cleanup?secret=DEIN_TOKEN
+app.get('/cleanup', async (req, res) => {
+  try {
+    const SECRET = process.env.CLEANUP_SECRET;
+    if (!SECRET || req.query.secret !== SECRET) {
+      return res.status(401).send('Unauthorized');
+    }
+    const result = await cleanupProducts();
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error('Cleanup error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 // Neuer create-product Endpoint: nutzt die ausgelagerte Funktion
