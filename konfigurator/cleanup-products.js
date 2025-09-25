@@ -1,6 +1,9 @@
 // konfigurator/cleanup-products.js
-// Löscht Produkte mit Tag "auto-delete-1h", die älter als 60 Minuten sind.
-// Nutzt dieselben ENV-Variablen wie der Rest: SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR
+// Löscht Produkte, die (a) älter als 60 Minuten sind UND
+// (b) mindestens einen der Marker-Tags tragen:
+//     - "auto-delete-1h"   oder
+//     - "configurator-hidden"
+// Nutzt das gleiche Admin-Token wie der Konfigurator.
 
 const fetch = require('node-fetch');
 
@@ -16,9 +19,11 @@ async function rest(path, opts = {}) {
     },
     ...opts
   });
+
   const text = await res.text();
   let json = {};
   try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+
   if (!res.ok) {
     const msg = json && (json.errors || json.error || json);
     throw new Error(`Shopify ${res.status} ${path}: ${JSON.stringify(msg)}`);
@@ -26,9 +31,9 @@ async function rest(path, opts = {}) {
   return { json, link: res.headers.get('link') || '' };
 }
 
-/** Kandidaten einsammeln (älter als 60 Min + Tag auto-delete-1h + Titel beginnt mit "Konfigurator:") */
+/** Kandidaten einsammeln (älter als 60 Min + Marker-Tag vorhanden) */
 async function listCandidates() {
-  const cutoffISO = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const cutoffISO = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 60 Min
   const out = [];
   let pageInfo = null;
 
@@ -36,7 +41,7 @@ async function listCandidates() {
     const qp = new URLSearchParams({
       limit: '250',
       status: 'any',
-      fields: 'id,title,tags,created_at,status'
+      fields: 'id,title,tags,created_at'
     });
     qp.append('created_at_max', cutoffISO);
     if (pageInfo) qp.append('page_info', pageInfo);
@@ -45,14 +50,18 @@ async function listCandidates() {
     const products = json.products || [];
 
     for (const p of products) {
-      const tags = (p.tags || '').split(',').map(t => t.trim());
-      const hasTag = tags.includes('auto-delete-1h');
-      const isConfigurator = /^Konfigurator:/i.test(p.title || '');
+      const tagsArr = (p.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+      const isMarked =
+        tagsArr.includes('auto-delete-1h') || tagsArr.includes('configurator-hidden');
       const isOld = new Date(p.created_at) < new Date(cutoffISO);
-      if (hasTag && isConfigurator && isOld) out.push({ id: p.id, title: p.title });
+
+      if (isMarked && isOld) {
+        out.push({ id: p.id, title: p.title });
+      }
     }
 
-    const m = link.match(/<[^>]*[?&]page_info=([^&>]+)[^>]*>; rel="next"/);
+    // Cursor für nächste Seite (falls >250 Produkte)
+    const m = link && link.match(/<[^>]*[?&]page_info=([^&>]+)[^>]*>; rel="next"/);
     pageInfo = m ? m[1] : null;
   } while (pageInfo);
 
@@ -77,6 +86,7 @@ async function cleanupProducts() {
       console.warn('⚠️ Konnte Produkt nicht löschen:', p.id, e.message || e);
     }
   }
+
   return { found: found.length, deleted };
 }
 
