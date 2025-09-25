@@ -1,9 +1,6 @@
 // konfigurator/cleanup-products.js
-// Löscht Produkte, die (a) älter als 60 Minuten sind UND
-// (b) mindestens einen der Marker-Tags tragen:
-//     - "auto-delete-1h"   oder
-//     - "configurator-hidden"
-// Nutzt das gleiche Admin-Token wie der Konfigurator.
+// Löscht SOFORT alle Produkte mit Tag "auto-delete-1h" ODER "configurator-hidden"
+// (keine Altersprüfung). Nutzt das gleiche Admin-Token wie der Konfigurator.
 
 const fetch = require('node-fetch');
 
@@ -31,9 +28,8 @@ async function rest(path, opts = {}) {
   return { json, link: res.headers.get('link') || '' };
 }
 
-/** Kandidaten einsammeln (älter als 60 Min + Marker-Tag vorhanden) */
+/** Kandidaten einsammeln (Marker-Tag vorhanden) */
 async function listCandidates() {
-  const cutoffISO = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 60 Min
   const out = [];
   let pageInfo = null;
 
@@ -43,7 +39,6 @@ async function listCandidates() {
       status: 'any',
       fields: 'id,title,tags,created_at'
     });
-    qp.append('created_at_max', cutoffISO);
     if (pageInfo) qp.append('page_info', pageInfo);
 
     const { json, link } = await rest(`/products.json?${qp.toString()}`);
@@ -53,9 +48,8 @@ async function listCandidates() {
       const tagsArr = (p.tags || '').split(',').map(t => t.trim()).filter(Boolean);
       const isMarked =
         tagsArr.includes('auto-delete-1h') || tagsArr.includes('configurator-hidden');
-      const isOld = new Date(p.created_at) < new Date(cutoffISO);
 
-      if (isMarked && isOld) {
+      if (isMarked) {
         out.push({ id: p.id, title: p.title });
       }
     }
