@@ -11,18 +11,16 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 const transporter = nodemailer.createTransport({
-host: "smtp.strato.de",
-  port: 587,
-  secure: false, // wichtig!
+  host: process.env.SMTP_HOST, // Brevo
+  port: process.env.SMTP_PORT, // 587
+  secure: false, // WICHTIG bei 587
   auth: {
-    user: process.env.SENDER_EMAIL,
-    pass: process.env.SMTP_PASSWORD,
+    user: process.env.SMTP_USER, // Brevo Login-Mail
+    pass: process.env.SMTP_PASSWORD, // Brevo SMTP-Key
   },
-  requireTLS: true,
-  tls: { minVersion: "TLSv1.2" },
-  connectionTimeout: 15000,
-  greetingTimeout: 15000,
-  socketTimeout: 15000,
+  tls: {
+    rejectUnauthorized: false
+  }
 });
 
 console.log("[SMTP] using", transporter.options?.host, transporter.options?.port, "secure=", transporter.options?.secure);
