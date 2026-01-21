@@ -25,6 +25,9 @@ host: "smtp.strato.de",
   socketTimeout: 15000,
 });
 
+console.log("[SMTP] using", transporter.options?.host, transporter.options?.port, "secure=", transporter.options?.secure);
+
+
 // Multer: Memory Storage
 const upload = multer({ storage: multer.memoryStorage() });
 
