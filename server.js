@@ -46,11 +46,11 @@ app.post('/submit', upload.none(), async (req, res) => {
     }
 
     await transporter.sendMail({
-      from: process.env.SENDER_EMAIL,
-      to: process.env.RECEIVER_EMAIL,
-      subject: 'Neue Bankdaten vom Kunden',
-      text: text,
-    });
+from: "info@midlifeart.de",
+to: "buchdruck@midlifeart.de",
+  subject: "Neue Bankdaten vom Kunden",
+  text: text,
+});
     res.status(200).json({ message: 'E-Mail erfolgreich gesendet.' });
   } catch (error) {
     console.error('Fehler beim E-Mail-Versand:', error);
@@ -89,13 +89,12 @@ app.post('/upload', upload.fields([
     if (files.inhalt?.[0]) attachments.push({ filename: files.inhalt[0].originalname, content: files.inhalt[0].buffer });
     if (files.autorenbild?.[0]) attachments.push({ filename: files.autorenbild[0].originalname, content: files.autorenbild[0].buffer });
 
-    await transporter.sendMail({
-      from: process.env.SENDER_EMAIL,
-      to: process.env.RECEIVER_EMAIL,
-      subject: 'Neuer Druckdaten-Upload vom Kunden (alle Felder)',
-      text,
-      attachments
-    });
+   await transporter.sendMail({
+from: "info@midlifeart.de",
+to: "buchdruck@midlifeart.de",
+  subject: "Neuer Druckdaten-Upload vom Kunden",
+  text: text,
+});
 
     res.status(200).json({ message: 'Upload erfolgreich übermittelt.' });
   } catch (error) {
@@ -186,8 +185,8 @@ ${files.map((f, i) => `  - [${i+1}] ${f.originalname} (${f.mimetype}, ${f.size} 
     }));
 
     await transporter.sendMail({
-      from: process.env.SENDER_EMAIL,
-to: process.env.RECEIVER_EMAIL, // z.B. buchdruck@midlifeart.de (per ENV)
+      SENDER_EMAIL=info@midlifeart.de
+RECEIVER_EMAIL=buchdruck@midlifeart.de // z.B. buchdruck@midlifeart.de (per ENV)
       subject: 'Neues Cover-Briefing vom Kunden',
       text,
       attachments
@@ -236,8 +235,8 @@ ${notes || '(keine)'}
 `;
 
     await transporter.sendMail({
-      from: process.env.SENDER_EMAIL,
-to: process.env.RECEIVER_EMAIL, // z.B. buchdruck@midlifeart.de (per ENV)
+      SENDER_EMAIL=info@midlifeart.de
+RECEIVER_EMAIL=buchdruck@midlifeart.de // z.B. buchdruck@midlifeart.de (per ENV)
       subject: 'Neue Rücksende-Anfrage vom Kunden',
       text
     });
