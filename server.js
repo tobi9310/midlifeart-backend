@@ -10,6 +10,21 @@ const { cleanupProducts, scanMarked } = require('./konfigurator/cleanup-products
 const app = express();
 const port = process.env.PORT || 3000;
 
+const transporter = nodemailer.createTransport({
+host: "smtp.strato.de",
+  port: 587,
+  secure: false, // wichtig!
+  auth: {
+    user: process.env.SENDER_EMAIL,
+    pass: process.env.SMTP_PASSWORD,
+  },
+  requireTLS: true,
+  tls: { minVersion: "TLSv1.2" },
+  connectionTimeout: 15000,
+  greetingTimeout: 15000,
+  socketTimeout: 15000,
+});
+
 // Multer: Memory Storage
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -20,16 +35,7 @@ app.use(bodyParser.json());
 // Auszahlungskonto-Formular
 app.post('/submit', upload.none(), async (req, res) => {
   try {
-    const formData = req.body;
-    const transporter = nodemailer.createTransport({
-host: 'smtp.strato.de',
-      port: 465,
-      secure: true,
-      auth: {
-        user: process.env.SENDER_EMAIL,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
+    const formData = req.body
 
     let text = 'Neue Auszahlungskonto Übermittlung:\n\n';
     const labels = { kontoinhaber: "Kontoinhaber", bank: "Bank", iban: "IBAN" };
@@ -60,16 +66,6 @@ app.post('/upload', upload.fields([
   try {
     const data = req.body;
     const files = req.files;
-
-    const transporter = nodemailer.createTransport({
-host: 'smtp.strato.de',
-      port: 465,
-      secure: true,
-      auth: {
-        user: process.env.SENDER_EMAIL,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
 
     let text = 'Neuer Druckdaten-Upload (Kundenbereich):\n\n';
     text += `Inklusivleistungen: ${data.inklusivleistungen || '-'}\n`;
@@ -112,16 +108,6 @@ app.post('/inserat', upload.single('autorenbild'), async (req, res) => {
   try {
     const formData = req.body;
     const datei = req.file;
-
-    const transporter = nodemailer.createTransport({
-host: 'smtp.strato.de',
-      port: 465,
-      secure: true,
-      auth: {
-        user: process.env.SENDER_EMAIL,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
 
     const labels = {
       buchtitel: "Buchtitel",
@@ -171,16 +157,6 @@ app.post('/cover-order', upload.array('files', 20), async (req, res) => {
       contactEmail = '-'
     } = req.body;
     const files = req.files || [];
-
-    const transporter = nodemailer.createTransport({
-host: 'smtp.strato.de',
-      port: 465,
-      secure: true,
-      auth: {
-        user: process.env.SENDER_EMAIL,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
 
     // E-Mail-Text
     let text =
@@ -239,16 +215,6 @@ app.post('/return-request', async (req, res) => {
     } = req.body || {};
 
     const { name: addrName = '', street = '', zip = '', city = '', country = '' } = address || {};
-
-    const transporter = nodemailer.createTransport({
-host: 'smtp.strato.de',
-      port: 465,
-      secure: true,
-      auth: {
-        user: process.env.SENDER_EMAIL,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
 
     const text =
 `Neue Rücksende-Anfrage (Kundenbereich)
@@ -457,16 +423,6 @@ app.post('/create-product', async (req, res) => {
 app.post('/kontakt', upload.none(), async (req, res) => {
   try {
     const { contact_type, contact_name, contact_email, contact_subject, contact_message } = req.body;
-
-    const transporter = nodemailer.createTransport({
-host: 'smtp.strato.de',
-      port: 465,
-      secure: true,
-      auth: {
-        user: process.env.SENDER_EMAIL,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
 
     const text = `Neue Kontaktanfrage:\n\n` +
                  `Ich bin: ${contact_type}\n` +
