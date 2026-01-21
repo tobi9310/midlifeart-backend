@@ -420,29 +420,58 @@ app.post('/create-product', async (req, res) => {
   }
 });
 
-// Kontaktformular
+// Kontaktformular (Brevo API statt SMTP)
 app.post('/kontakt', upload.none(), async (req, res) => {
   try {
-    const { contact_type, contact_name, contact_email, contact_subject, contact_message } = req.body;
+    const {
+      contact_type,
+      contact_name,
+      contact_email,
+      contact_subject,
+      contact_message
+    } = req.body;
 
-    const text = `Neue Kontaktanfrage:\n\n` +
-                 `Ich bin: ${contact_type}\n` +
-                 `Name: ${contact_name}\n` +
-                 `E-Mail: ${contact_email}\n` +
-                 `Betreff: ${contact_subject}\n\n` +
-                 `Nachricht:\n${contact_message}`;
-
-    await transporter.sendMail({
-      from: process.env.SENDER_EMAIL,
-to: "info@midlifeart.de",
-      subject: 'Neue Kontaktanfrage über das Formular',
-      text: text,
+const brevoResp = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "api-key": process.env.BREVO_API_KEY
+      },
+      body: JSON.stringify({
+        sender: {
+          name: "Midlifeart",
+email: "info@midlifeart.de" // Absender (muss bei Brevo freigegeben sein)
+        },
+        to: [
+{ email: "info@midlifeart.de", name: "Midlifeart" } // Empfänger
+        ],
+        replyTo: {
+email: contact_email || "info@midlifeart.de"
+        },
+        subject: `Kontaktanfrage: ${contact_subject || "(ohne Betreff)"}`,
+        htmlContent: `
+          <h3>Neue Kontaktanfrage</h3>
+          <p><b>Ich bin:</b> ${contact_type || "-"}</p>
+          <p><b>Name:</b> ${contact_name || "-"}</p>
+          <p><b>E-Mail:</b> ${contact_email || "-"}</p>
+          <p><b>Betreff:</b> ${contact_subject || "-"}</p>
+          <p><b>Nachricht:</b><br>${(contact_message || "-").replace(/\n/g, "<br>")}</p>
+        `
+      })
     });
 
-    res.status(200).json({ message: 'Nachricht erfolgreich versendet.' });
+    if (!brevoResp.ok) {
+      const errTxt = await brevoResp.text().catch(() => "");
+      console.error("Brevo Fehler /kontakt:", brevoResp.status, errTxt);
+      return res.status(500).json({ error: "Nachricht konnte nicht gesendet werden." });
+    }
+
+    return res.status(200).json({ message: "Nachricht erfolgreich versendet." });
+
   } catch (error) {
-    console.error('Fehler beim Versenden des Kontaktformulars:', error);
-    res.status(500).json({ error: 'Nachricht konnte nicht gesendet werden.' });
+    console.error("Kontaktformular Fehler:", error);
+    return res.status(500).json({ error: "Nachricht konnte nicht gesendet werden." });
   }
 });
 
