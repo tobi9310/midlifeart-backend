@@ -463,6 +463,21 @@ app.post("/kontakt", upload.none(), async (req, res) => {
   try {
     const { contact_type, contact_name, contact_email, contact_subject, contact_message } = req.body || {};
 
+    // 🛡️ Spam-Schutz: Honeypot
+if (req.body?.website && String(req.body.website).trim() !== "") {
+  console.log("🛑 Spam geblockt (honeypot)");
+  return res.status(200).json({ message: "OK" });
+}
+
+// 🛡️ Spam-Schutz: Zeitcheck (Bots sind zu schnell)
+const t = Number(req.body?.formTime || 0);
+const seconds = t ? (Date.now() - t) / 1000 : 0;
+
+if (!t || seconds < 3) {
+  console.log("🛑 Spam geblockt (zu schnell):", seconds);
+  return res.status(200).json({ message: "OK" });
+}
+
     const html = `
       <h3>Neue Kontaktanfrage</h3>
       <p><b>Ich bin:</b> ${contact_type || "-"}</p>
