@@ -118,6 +118,14 @@ app.post(
       const data = req.body || {};
       const files = req.files || {};
 
+      // 🛡️ AGB Pflichtprüfung
+if (!req.body?.agbAccepted) {
+  console.log("🛑 Druckdaten blockiert: AGB nicht akzeptiert");
+  return res.status(400).json({
+    error: "Bitte akzeptiere die AGB, um fortzufahren."
+  });
+}
+
       let text = "Neuer Druckdaten-Upload (Kundenbereich):\n\n";
       text += `Druckart/Inklusivleistungen: ${data.inklusivleistungen || data.druckart || "-"}\n`;
       text += `Bestellnummer: ${data.bestellnummer || "-"}\n`;
