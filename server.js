@@ -1,481 +1,494 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const nodemailer = require('nodemailer');
-const fetch = require('node-fetch');
-const cors = require('cors');
-const multer = require('multer');
-const { createProduct } = require('./konfigurator/create-product');
-const { cleanupProducts, scanMarked } = require('./konfigurator/cleanup-products');
+/**
+ * server.js — Midlifeart Backend (Render)
+ * Stabiler Mailversand via Brevo HTTP API (kein SMTP)
+ */
+
+const express = require("express");
+const bodyParser = require("body-parser");
+const fetch = require("node-fetch");
+const cors = require("cors");
+const multer = require("multer");
+
+const { createProduct } = require("./konfigurator/create-product");
+const { cleanupProducts, scanMarked } = require("./konfigurator/cleanup-products");
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST, // Brevo
-  port: process.env.SMTP_PORT, // 587
-  secure: false, // WICHTIG bei 587
-  auth: {
-    user: process.env.SMTP_USER, // Brevo Login-Mail
-    pass: process.env.SMTP_PASSWORD, // Brevo SMTP-Key
-  },
-  tls: {
-    rejectUnauthorized: false
-  }
-});
-
-console.log("[SMTP] using", transporter.options?.host, transporter.options?.port, "secure=", transporter.options?.secure);
-
-
-// Multer: Memory Storage
+// Multer: Memory Storage (Uploads im RAM)
 const upload = multer({ storage: multer.memoryStorage() });
 
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
-// Auszahlungskonto-Formular
-app.post('/submit', upload.none(), async (req, res) => {
-  try {
-    const formData = req.body
+/** ENV Defaults */
+const SENDER_EMAIL = process.env.SENDER_EMAIL || "info@midlifeart.de";
+const RECEIVER_EMAIL = process.env.RECEIVER_EMAIL || "buchdruck@midlifeart.de";
+const CONTACT_RECEIVER_EMAIL = process.env.CONTACT_RECEIVER_EMAIL || "info@midlifeart.de";
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
-    let text = 'Neue Auszahlungskonto Übermittlung:\n\n';
+/** --- Brevo Mail Helper (HTTP API) --- */
+async function sendBrevoMail({ to, subject, text, html, replyTo, attachments = [] }) {
+  if (!BREVO_API_KEY) {
+    throw new Error("BREVO_API_KEY missing in environment variables.");
+  }
+
+  const payload = {
+    sender: { name: "Midlifeart", email: SENDER_EMAIL },
+    to: [{ email: to }],
+    subject: subject || "(ohne Betreff)",
+  };
+
+  if (replyTo) payload.replyTo = { email: replyTo };
+
+  // Brevo akzeptiert textContent ODER htmlContent
+  if (html) payload.htmlContent = html;
+  else payload.textContent = text || "";
+
+  // Attachments: [{ name, content(base64) }]
+  if (attachments.length > 0) {
+    payload.attachment = attachments.map((a) => ({
+      name: a.name,
+      content: a.contentBase64,
+    }));
+  }
+
+const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      "api-key": BREVO_API_KEY,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!r.ok) {
+    const errTxt = await r.text().catch(() => "");
+    throw new Error(`Brevo send failed (${r.status}): ${errTxt}`);
+  }
+}
+
+/** Optional: Attachment-Größenlimit (Brevo/Deliverability) */
+const MAX_ATTACH_BYTES = 20 * 1024 * 1024; // 20MB
+function totalBytes(files = []) {
+  return files.reduce((sum, f) => sum + (f?.size || 0), 0);
+}
+
+/** ------------------------------
+ *  ROUTES
+ *  ------------------------------ */
+
+/** Auszahlungskonto-Formular */
+app.post("/submit", upload.none(), async (req, res) => {
+  try {
+    const formData = req.body || {};
     const labels = { kontoinhaber: "Kontoinhaber", bank: "Bank", iban: "IBAN" };
-    for (let key in formData) {
+
+    let text = "Neue Auszahlungskonto Übermittlung:\n\n";
+    for (const key in formData) {
       const label = labels[key] || key;
       text += `${label}: ${formData[key]}\n`;
     }
 
-    await transporter.sendMail({
-from: "info@midlifeart.de",
-to: "buchdruck@midlifeart.de",
-  subject: "Neue Bankdaten vom Kunden",
-  text: text,
-});
-    res.status(200).json({ message: 'E-Mail erfolgreich gesendet.' });
+    await sendBrevoMail({
+      to: RECEIVER_EMAIL,
+      subject: "Neue Bankdaten vom Kunden",
+      text,
+    });
+
+    res.status(200).json({ message: "E-Mail erfolgreich gesendet." });
   } catch (error) {
-    console.error('Fehler beim E-Mail-Versand:', error);
-    res.status(500).json({ error: 'Fehler beim E-Mail-Versand.' });
+    console.error("Fehler bei /submit:", error);
+    res.status(500).json({ error: "Fehler beim E-Mail-Versand." });
   }
 });
 
-// === NEUER /upload-Endpunkt für ALLE FELDER & DATEIEN ===
-app.post('/upload', upload.fields([
-  { name: 'cover', maxCount: 1 },
-  { name: 'inhalt', maxCount: 1 },
-  { name: 'autorenbild', maxCount: 1 }
-]), async (req, res) => {
-  try {
-    const data = req.body;
-    const files = req.files;
+/** Druckdaten Upload (Cover+Inhalt+Autorenbild optional) */
+app.post(
+  "/upload",
+  upload.fields([
+    { name: "cover", maxCount: 1 },
+    { name: "inhalt", maxCount: 1 },
+    { name: "autorenbild", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const data = req.body || {};
+      const files = req.files || {};
 
-    let text = 'Neuer Druckdaten-Upload (Kundenbereich):\n\n';
-    text += `Inklusivleistungen: ${data.inklusivleistungen || '-'}\n`;
-    text += `Bestellnummer: ${data.bestellnummer || '-'}\n`;
-    text += `Buchtitel: ${data.buchtitel || '-'}\n`;
-    text += `Verkaufspreis: ${data.verkaufspreis || '-'}\n`;
-    text += `Genre: ${data.genre || '-'}\n`;
-    text += `Buchbeschreibung: ${data.inhaltsangabe || '-'}\n`;
-    text += `Autoreninfo: ${data.autoreninfo || '-'}\n`;
-    text += `Kontakt-E-Mail: ${data.contactEmail || '-'}\n`;
-    text += `\n--- Dateien ---\n`;
-    text += `Buchcover: ${files.cover?.[0]?.originalname || '-'}\n`;
-    text += `Buchinhalt: ${files.inhalt?.[0]?.originalname || '-'}\n`;
-    if (files.autorenbild?.[0]) {
-      text += `Autorenbild: ${files.autorenbild[0].originalname}\n`;
+      let text = "Neuer Druckdaten-Upload (Kundenbereich):\n\n";
+      text += `Druckart/Inklusivleistungen: ${data.inklusivleistungen || data.druckart || "-"}\n`;
+      text += `Bestellnummer: ${data.bestellnummer || "-"}\n`;
+      text += `Buchtitel: ${data.buchtitel || "-"}\n`;
+      text += `Verkaufspreis: ${data.verkaufspreis || "-"}\n`;
+      text += `Genre: ${data.genre || "-"}\n`;
+      text += `Buchbeschreibung: ${data.inhaltsangabe || "-"}\n`;
+      text += `Autor:innenname: ${data.autorname || "-"}\n`;
+      text += `Autoreninfo: ${data.autoreninfo || "-"}\n`;
+      text += `Kontakt-E-Mail: ${data.contactEmail || "-"}\n`;
+
+      const att = [];
+      const cover = files.cover?.[0];
+      const inhalt = files.inhalt?.[0];
+      const autorenbild = files.autorenbild?.[0];
+
+      // Sammle File-Infos
+      text += `\n--- Dateien ---\n`;
+      text += `Buchcover: ${cover?.originalname || "-"}\n`;
+      text += `Buchinhalt: ${inhalt?.originalname || "-"}\n`;
+      text += `Autorenbild: ${autorenbild?.originalname || "-"}\n`;
+
+      // Attachments (Base64)
+      const fileList = [cover, inhalt, autorenbild].filter(Boolean);
+      if (totalBytes(fileList) > MAX_ATTACH_BYTES) {
+        text += `\n⚠️ Hinweis: Anhänge waren größer als ${MAX_ATTACH_BYTES / (1024 * 1024)}MB und wurden nicht als Mail-Anhang versendet.\n`;
+      } else {
+        if (cover) att.push({ name: cover.originalname, contentBase64: cover.buffer.toString("base64") });
+        if (inhalt) att.push({ name: inhalt.originalname, contentBase64: inhalt.buffer.toString("base64") });
+        if (autorenbild) att.push({ name: autorenbild.originalname, contentBase64: autorenbild.buffer.toString("base64") });
+      }
+
+      await sendBrevoMail({
+        to: RECEIVER_EMAIL,
+        subject: "Neuer Druckdaten-Upload vom Kunden",
+        text,
+        replyTo: data.contactEmail || undefined,
+        attachments: att,
+      });
+
+      res.status(200).json({ message: "Upload erfolgreich übermittelt." });
+    } catch (error) {
+      console.error("Fehler bei /upload:", error);
+      res.status(500).json({ error: "Upload fehlgeschlagen." });
     }
-
-    const attachments = [];
-    if (files.cover?.[0]) attachments.push({ filename: files.cover[0].originalname, content: files.cover[0].buffer });
-    if (files.inhalt?.[0]) attachments.push({ filename: files.inhalt[0].originalname, content: files.inhalt[0].buffer });
-    if (files.autorenbild?.[0]) attachments.push({ filename: files.autorenbild[0].originalname, content: files.autorenbild[0].buffer });
-
-   await transporter.sendMail({
-from: "info@midlifeart.de",
-to: "buchdruck@midlifeart.de",
-  subject: "Neuer Druckdaten-Upload vom Kunden",
-  text: text,
-});
-
-    res.status(200).json({ message: 'Upload erfolgreich übermittelt.' });
-  } catch (error) {
-    console.error('Fehler beim Upload-Versand:', error);
-    res.status(500).json({ error: 'Upload fehlgeschlagen.' });
   }
-});
+);
 
-// Buchinserat-Formular
-app.post('/inserat', upload.single('autorenbild'), async (req, res) => {
+/** Buchinserat-Formular (optional Autor:innenbild) */
+app.post("/inserat", upload.single("autorenbild"), async (req, res) => {
   try {
-    const formData = req.body;
+    const formData = req.body || {};
     const datei = req.file;
 
     const labels = {
       buchtitel: "Buchtitel",
       inhaltsangabe: "Inhaltsangabe",
-      autorenname: "Autorenname",
-      autorenbeschreibung: "Autorenbeschreibung",
-      verkaufspreis: "Verkaufspreis"
+      autorenname: "Autor:innenname",
+      autoreninfo: "Autoreninfo",
+      verkaufspreis: "Verkaufspreis",
+      genre: "Genre",
+      contactEmail: "Kontakt-E-Mail",
     };
 
     let text = "Neues Buchinserat vom Kunden:\n\n";
-    for (let key in formData) {
+    for (const key in formData) {
       const label = labels[key] || key;
       text += `${label}: ${formData[key]}\n\n`;
     }
 
-    const mailOptions = {
-      from: process.env.SENDER_EMAIL,
-      to: process.env.RECEIVER_EMAIL,
+    const attachments = [];
+    if (datei && datei.buffer && datei.size <= MAX_ATTACH_BYTES) {
+      attachments.push({
+        name: datei.originalname || "autorenbild.jpg",
+        contentBase64: datei.buffer.toString("base64"),
+      });
+    } else if (datei) {
+      text += "\n⚠️ Hinweis: Autorenbild war zu groß und wurde nicht als Anhang versendet.\n";
+    }
+
+    await sendBrevoMail({
+      to: RECEIVER_EMAIL,
       subject: "Neues Buchinserat eingegangen",
-      text: text,
-      attachments: datei ? [{
-        filename: datei.originalname || 'autorenbild.jpg',
-        content: datei.buffer
-      }] : []
-    };
-
-    await transporter.sendMail(mailOptions);
-    res.status(200).json({ message: 'Inserat erfolgreich gesendet.' });
-  } catch (error) {
-    console.error('Fehler beim Inserat-Versand:', error);
-    res.status(500).json({ error: 'Fehler beim Inserat-Versand.' });
-  }
-});
-
-/* ===========================
-   NEU: Cover-Briefing Formular
-   POST /cover-order  (multipart/form-data)
-   =========================== */
-app.post('/cover-order', upload.array('files', 20), async (req, res) => {
-  try {
-    const {
-      name = '-',
-      orderNumber = '-',
-      bookTitle = '-',
-      blurb = '-',
-      notes = '-',
-      contactEmail = '-'
-    } = req.body;
-    const files = req.files || [];
-
-    // E-Mail-Text
-    let text =
-`Neues Cover-Briefing (Kundenbereich)
-
-Absender:        ${name}
-Bestellnummer:   ${orderNumber}
-Buchtitel:       ${bookTitle}
-Kontakt-E-Mail:  ${contactEmail}
-
-Kurzbeschreibung (optional):
-${blurb}
-
-Wünsche & Erklärungen:
-${notes}
-
-Anhänge: ${files.length} Datei(en)
-${files.map((f, i) => `  - [${i+1}] ${f.originalname} (${f.mimetype}, ${f.size} Bytes)`).join('\n')}
-`;
-
-    // Attachments (alle Dateien aus files[])
-    const attachments = files.map(f => ({
-      filename: f.originalname || 'upload',
-      content: f.buffer,
-      contentType: f.mimetype
-    }));
-
-    await transporter.sendMail({
-      SENDER_EMAIL=info@midlifeart.de
-RECEIVER_EMAIL=buchdruck@midlifeart.de // z.B. buchdruck@midlifeart.de (per ENV)
-      subject: 'Neues Cover-Briefing vom Kunden',
       text,
-      attachments
+      replyTo: formData.contactEmail || undefined,
+      attachments,
     });
 
-    res.status(200).json({ ok: true, message: 'Cover-Briefing übermittelt.' });
+    res.status(200).json({ message: "Inserat erfolgreich gesendet." });
   } catch (error) {
-    console.error('Fehler bei /cover-order:', error);
-    res.status(500).json({ error: 'Cover-Briefing konnte nicht gesendet werden.' });
+    console.error("Fehler bei /inserat:", error);
+    res.status(500).json({ error: "Fehler beim Inserat-Versand." });
   }
 });
 
-/* ===========================
-   NEU: Rücksende-Anfrage
-   POST /return-request (application/json)
-   =========================== */
-app.post('/return-request', async (req, res) => {
+/** Cover-Briefing Formular (multipart/form-data) */
+app.post("/cover-order", upload.array("files", 20), async (req, res) => {
   try {
     const {
-      name = '-',
-      orderNumber = '-',
-      quantity = '-',
-      address = {},
-      contactEmail = '-',
-      notes = ''
+      name = "-",
+      orderNumber = "-",
+      bookTitle = "-",
+      blurb = "-",
+      notes = "-",
+      contactEmail = "-",
     } = req.body || {};
 
-    const { name: addrName = '', street = '', zip = '', city = '', country = '' } = address || {};
+    const files = req.files || [];
 
-    const text =
-`Neue Rücksende-Anfrage (Kundenbereich)
+    let text =
+      `Neues Cover-Briefing (Kundenbereich)\n` +
+      `Absender:        ${name}\n` +
+      `Bestellnummer:   ${orderNumber}\n` +
+      `Buchtitel:       ${bookTitle}\n` +
+      `Kontakt-E-Mail:  ${contactEmail}\n\n` +
+      `Kurzbeschreibung (optional):\n${blurb}\n\n` +
+      `Wünsche & Erklärungen:\n${notes}\n\n` +
+      `Anhänge: ${files.length} Datei(en)\n` +
+      `${files
+        .map((f, i) => `  - [${i + 1}] ${f.originalname} (${f.mimetype}, ${f.size} Bytes)`)
+        .join("\n")}\n`;
 
-Absender:        ${name}
-Bestell/Projekt: ${orderNumber}
-Anzahl Bücher:   ${quantity}
-Kontakt-E-Mail:  ${contactEmail}
+    const attachments = [];
+    if (totalBytes(files) > MAX_ATTACH_BYTES) {
+      text += `\n⚠️ Hinweis: Anhänge waren größer als ${MAX_ATTACH_BYTES / (1024 * 1024)}MB und wurden nicht als Mail-Anhang versendet.\n`;
+    } else {
+      files.forEach((f) => {
+        attachments.push({
+          name: f.originalname || "upload",
+          contentBase64: f.buffer.toString("base64"),
+        });
+      });
+    }
 
-Rücksende-Adresse:
-  ${addrName}
-  ${street}
-  ${zip} ${city}
-  ${country}
-
-Notizen:
-${notes || '(keine)'}
-`;
-
-    await transporter.sendMail({
-      SENDER_EMAIL=info@midlifeart.de
-RECEIVER_EMAIL=buchdruck@midlifeart.de // z.B. buchdruck@midlifeart.de (per ENV)
-      subject: 'Neue Rücksende-Anfrage vom Kunden',
-      text
+    await sendBrevoMail({
+      to: RECEIVER_EMAIL,
+      subject: "Neues Cover-Briefing vom Kunden",
+      text,
+      replyTo: contactEmail !== "-" ? contactEmail : undefined,
+      attachments,
     });
 
-    res.status(200).json({ ok: true, message: 'Rücksende-Anfrage übermittelt.' });
+    res.status(200).json({ ok: true, message: "Cover-Briefing übermittelt." });
   } catch (error) {
-    console.error('Fehler bei /return-request:', error);
-    res.status(500).json({ error: 'Rücksende-Anfrage konnte nicht gesendet werden.' });
+    console.error("Fehler bei /cover-order:", error);
+    res.status(500).json({ error: "Cover-Briefing konnte nicht gesendet werden." });
   }
 });
 
+/** Rücksende-Anfrage (application/json) */
+app.post("/return-request", async (req, res) => {
+  try {
+    const {
+      name = "-",
+      orderNumber = "-",
+      quantity = "-",
+      address = {},
+      contactEmail = "-",
+      notes = "",
+    } = req.body || {};
+
+    const { name: addrName = "", street = "", zip = "", city = "", country = "" } = address || {};
+
+    const text =
+      `Neue Rücksende-Anfrage (Kundenbereich)\n` +
+      `Absender:        ${name}\n` +
+      `Bestell/Projekt: ${orderNumber}\n` +
+      `Anzahl Bücher:   ${quantity}\n` +
+      `Kontakt-E-Mail:  ${contactEmail}\n` +
+      `Rücksende-Adresse:\n` +
+      `  ${addrName}\n  ${street}\n  ${zip} ${city}\n  ${country}\n\n` +
+      `Notizen:\n${notes || "(keine)"}\n`;
+
+    await sendBrevoMail({
+      to: RECEIVER_EMAIL,
+      subject: "Neue Rücksende-Anfrage vom Kunden",
+      text,
+      replyTo: contactEmail !== "-" ? contactEmail : undefined,
+    });
+
+    res.status(200).json({ ok: true, message: "Rücksende-Anfrage übermittelt." });
+  } catch (error) {
+    console.error("Fehler bei /return-request:", error);
+    res.status(500).json({ error: "Rücksende-Anfrage konnte nicht gesendet werden." });
+  }
+});
+
+/** Projekte aus Shopify Kunden-Metafeldern holen */
 app.get("/get-projekte", async (req, res) => {
   try {
     console.log("Starte /get-projekte...");
-const response = await fetch("https://7456d9-4.myshopify.com/admin/api/2023-10/customers.json?fields=id,email", {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
-      }
-    });
-    const data = await response.json();
 
+    const response = await fetch(
+"https://7456d9-4.myshopify.com/admin/api/2023-10/customers.json?fields=id,email",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
+        },
+      }
+    );
+
+    const data = await response.json();
     if (!response.ok) {
       console.error("Fehler beim Laden der Kunden:", data);
       return res.status(500).json({ error: "Fehler beim Laden der Kunden", details: data });
     }
 
     const kunden = data.customers || [];
-    console.log(`Anzahl Kunden: ${kunden.length}`);
-
     const projektliste = [];
+
     for (const kunde of kunden) {
-      console.log(`Bearbeite Kunde ${kunde.id} (${kunde.email})`);
-const metaRes = await fetch(`https://7456d9-4.myshopify.com/admin/api/2023-10/customers/${kunde.id}/metafields.json`, {
-        headers: {
-          "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
-          "Content-Type": "application/json"
+      const metaRes = await fetch(
+`https://7456d9-4.myshopify.com/admin/api/2023-10/customers/${kunde.id}/metafields.json`,
+        {
+          headers: {
+            "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
+            "Content-Type": "application/json",
+          },
         }
-      });
+      );
+
       const metaData = await metaRes.json();
-      if (!metaRes.ok) {
-        console.error(`Fehler beim Laden der Metafelder von Kunde ${kunde.id}:`, metaData);
-        continue;
-      }
+      if (!metaRes.ok) continue;
+
       const metas = metaData.metafields || [];
-      console.log(`→ Metafelder gefunden (${metas.length}):`, metas.map(x => `${x.namespace}.${x.key} = ${x.value}`));
-      const projekt = metas.find(x => x.namespace === "dashboard" && x.key === "projekt");
-      const buchtitel = metas.find(x => x.namespace === "dashboard" && x.key === "buchtitel");
+      const projekt = metas.find((x) => x.namespace === "dashboard" && x.key === "projekt");
+      const buchtitel = metas.find((x) => x.namespace === "dashboard" && x.key === "buchtitel");
+
       if (projekt && buchtitel) {
         projektliste.push({
           id: kunde.id,
           email: kunde.email,
           projekt: projekt.value,
-          buchtitel: buchtitel.value
+          buchtitel: buchtitel.value,
         });
-      } else {
-        console.warn(`→ ⚠️ Projekt oder Buchtitel fehlt bei Kunde ${kunde.id}`);
       }
     }
 
-    console.log("FERTIG – Projektliste:", projektliste);
     res.json(projektliste);
   } catch (error) {
-    console.error("Fehler beim Holen der Projekte:", error);
+    console.error("Fehler bei /get-projekte:", error);
     res.status(500).json({ error: "Fehler beim Holen der Projekte", details: error.message });
   }
 });
 
+/** Ping */
 app.get("/ping", (req, res) => {
   res.status(200).json({ message: "Server wach" });
 });
 
-// Manuelles Aufräumen: GET /cleanup?secret=DEIN_TOKEN
-app.get('/cleanup', async (req, res) => {
+/** Cleanup / Scan / Diag (unverändert) */
+app.get("/cleanup", async (req, res) => {
   try {
     const SECRET = process.env.CLEANUP_SECRET;
-    if (!SECRET || req.query.secret !== SECRET) {
-      return res.status(401).send('Unauthorized');
-    }
+    if (!SECRET || req.query.secret !== SECRET) return res.status(401).send("Unauthorized");
     const result = await cleanupProducts();
     res.json({ ok: true, ...result });
   } catch (e) {
-    console.error('Cleanup error:', e);
+    console.error("Cleanup error:", e);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// Debug: zeigt markierte Produkte (löscht NICHT)
-app.get('/cleanup/scan', async (req, res) => {
+app.get("/cleanup/scan", async (req, res) => {
   try {
     const SECRET = process.env.CLEANUP_SECRET;
-    if (!SECRET || req.query.secret !== SECRET) {
-      return res.status(401).send('Unauthorized');
-    }
+    if (!SECRET || req.query.secret !== SECRET) return res.status(401).send("Unauthorized");
     const items = await scanMarked();
     res.json({ ok: true, found: items.length, items });
   } catch (e) {
-    console.error('Scan error:', e);
+    console.error("Scan error:", e);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// Diagnose: zeigt, welcher Token genutzt wird + kann Produkte lesen?
-app.get('/cleanup/diag', async (req, res) => {
+app.get("/cleanup/diag", async (req, res) => {
   try {
     const SECRET = process.env.CLEANUP_SECRET;
-    if (!SECRET || req.query.secret !== SECRET) {
-      return res.status(401).send('Unauthorized');
-    }
+    if (!SECRET || req.query.secret !== SECRET) return res.status(401).send("Unauthorized");
 
-const shop = '7456d9-4.myshopify.com';
-    const tokenName = process.env.SHOPIFY_ADMIN_API_TOKEN ? 'SHOPIFY_ADMIN_API_TOKEN'
-                      : (process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR ? 'SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR'
-                      : 'NONE');
+const shop = "7456d9-4.myshopify.com";
+    const tokenName = process.env.SHOPIFY_ADMIN_API_TOKEN
+      ? "SHOPIFY_ADMIN_API_TOKEN"
+      : process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR
+      ? "SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR"
+      : "NONE";
 
     const token = process.env.SHOPIFY_ADMIN_API_TOKEN || process.env.SHOPIFY_ADMIN_API_TOKEN_KONFIGURATOR;
 
-    let apiStatus = 'unknown';
-    let count = 0;
-    let titles = [];
-    let error = null;
+    const r = await fetch(`https://${shop}/admin/api/2023-10/products.json?limit=5&status=any`, {
+      headers: {
+        "X-Shopify-Access-Token": token,
+        "Content-Type": "application/json",
+      },
+    });
 
-    try {
-      const r = await fetch(`https://${shop}/admin/api/2023-10/products.json?limit=5&status=any`, {
-        headers: {
-          'X-Shopify-Access-Token': token,
-          'Content-Type': 'application/json'
-        }
-      });
-      const txt = await r.text();
-      let j = {};
-      try { j = txt ? JSON.parse(txt) : {}; } catch { j = { raw: txt }; }
+    const txt = await r.text();
+    let j = {};
+    try { j = txt ? JSON.parse(txt) : {}; } catch { j = { raw: txt }; }
 
-      if (!r.ok) {
-        apiStatus = `${r.status}`;
-        error = j.errors || j.error || j.raw || j;
-      } else {
-        apiStatus = `${r.status}`;
-        const prods = j.products || [];
-        count = prods.length;
-        titles = prods.map(p => p.title).slice(0, 5);
-      }
-    } catch (e) {
-      apiStatus = 'fetch-failed';
-      error = e.message || String(e);
+    if (!r.ok) {
+      return res.json({ ok: true, shop, usingTokenEnv: tokenName, apiStatus: `${r.status}`, error: j.errors || j });
     }
 
+    const prods = j.products || [];
     res.json({
       ok: true,
       shop,
       usingTokenEnv: tokenName,
-      apiStatus,
-      sampleCount: count,
-      sampleTitles: titles,
-      error
+      apiStatus: `${r.status}`,
+      sampleCount: prods.length,
+      sampleTitles: prods.map((p) => p.title).slice(0, 5),
+      error: null,
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// Neuer create-product Endpoint: nutzt die ausgelagerte Funktion
-app.post('/create-product', async (req, res) => {
+/** Konfigurator: Produkt erstellen */
+app.post("/create-product", async (req, res) => {
   try {
     const { title, price } = req.body;
-
     const result = await createProduct({ title, price });
-    // WICHTIG: produktId = VARIANTEN-ID (legacyVariantId) für euer Frontend /cart/add.js
+
     res.status(200).json({
-      message: '✅ Produkt erfolgreich erstellt',
-      produktId: result.legacyVariantId,   // <-- Frontend erwartet die Varianten-ID
-      productId: result.productId,         // Zusatzinfo (Produkt-ID)
-      variantId: result.variantId,         // Zusatzinfo (Variant-ID)
-      legacyVariantId: result.legacyVariantId
+      message: "✅ Produkt erfolgreich erstellt",
+      produktId: result.legacyVariantId,
+      productId: result.productId,
+      variantId: result.variantId,
+      legacyVariantId: result.legacyVariantId,
     });
   } catch (error) {
-    console.error('❌ Fehler beim Erstellen des Produkts:', error?.message || error);
-    res.status(500).json({ error: 'Produkt konnte nicht erstellt werden' });
+    console.error("❌ Fehler beim Erstellen des Produkts:", error?.message || error);
+    res.status(500).json({ error: "Produkt konnte nicht erstellt werden" });
   }
 });
 
-// Kontaktformular (Brevo API statt SMTP)
-app.post('/kontakt', upload.none(), async (req, res) => {
+/** Kontaktformular (Brevo API) */
+app.post("/kontakt", upload.none(), async (req, res) => {
   try {
-    const {
-      contact_type,
-      contact_name,
-      contact_email,
-      contact_subject,
-      contact_message
-    } = req.body;
+    const { contact_type, contact_name, contact_email, contact_subject, contact_message } = req.body || {};
 
-const brevoResp = await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "api-key": process.env.BREVO_API_KEY
-      },
-      body: JSON.stringify({
-        sender: {
-          name: "Midlifeart",
-email: "info@midlifeart.de" // Absender (muss bei Brevo freigegeben sein)
-        },
-        to: [
-{ email: "info@midlifeart.de", name: "Midlifeart" } // Empfänger
-        ],
-        replyTo: {
-email: contact_email || "info@midlifeart.de"
-        },
-        subject: `Kontaktanfrage: ${contact_subject || "(ohne Betreff)"}`,
-        htmlContent: `
-          <h3>Neue Kontaktanfrage</h3>
-          <p><b>Ich bin:</b> ${contact_type || "-"}</p>
-          <p><b>Name:</b> ${contact_name || "-"}</p>
-          <p><b>E-Mail:</b> ${contact_email || "-"}</p>
-          <p><b>Betreff:</b> ${contact_subject || "-"}</p>
-          <p><b>Nachricht:</b><br>${(contact_message || "-").replace(/\n/g, "<br>")}</p>
-        `
-      })
+    const html = `
+      <h3>Neue Kontaktanfrage</h3>
+      <p><b>Ich bin:</b> ${contact_type || "-"}</p>
+      <p><b>Name:</b> ${contact_name || "-"}</p>
+      <p><b>E-Mail:</b> ${contact_email || "-"}</p>
+      <p><b>Betreff:</b> ${contact_subject || "-"}</p>
+      <p><b>Nachricht:</b><br>${(contact_message || "-").replace(/\n/g, "<br>")}</p>
+    `;
+
+    await sendBrevoMail({
+      to: CONTACT_RECEIVER_EMAIL,
+      subject: `Kontaktanfrage: ${contact_subject || "(ohne Betreff)"}`,
+      html,
+      replyTo: contact_email || undefined,
     });
 
-    if (!brevoResp.ok) {
-      const errTxt = await brevoResp.text().catch(() => "");
-      console.error("Brevo Fehler /kontakt:", brevoResp.status, errTxt);
-      return res.status(500).json({ error: "Nachricht konnte nicht gesendet werden." });
-    }
-
-    return res.status(200).json({ message: "Nachricht erfolgreich versendet." });
-
+    res.status(200).json({ message: "Nachricht erfolgreich versendet." });
   } catch (error) {
-    console.error("Kontaktformular Fehler:", error);
-    return res.status(500).json({ error: "Nachricht konnte nicht gesendet werden." });
+    console.error("Fehler bei /kontakt:", error);
+    res.status(500).json({ error: "Nachricht konnte nicht gesendet werden." });
   }
 });
 
-// Server starten
+/** Start */
 const server = app.listen(port, () => {
   console.log(`Server läuft auf Port ${port}`);
 });
+
 module.exports = server;
