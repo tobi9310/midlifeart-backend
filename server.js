@@ -72,8 +72,15 @@ const r = await fetch("https://api.brevo.com/v3/smtp/email", {
 
 /** Optional: Attachment-Größenlimit (Brevo/Deliverability) */
 const MAX_ATTACH_BYTES = 20 * 1024 * 1024; // 20MB
+
 function totalBytes(files = []) {
   return files.reduce((sum, f) => sum + (f?.size || 0), 0);
+}
+
+/** Helper: AGB akzeptiert? (Checkbox kann "true" oder "on" sein) */
+function isAgbAccepted(value) {
+  const v = String(value ?? "").toLowerCase().trim();
+  return v === "true" || v === "on" || v === "1" || v === "yes";
 }
 
 /** ------------------------------
@@ -118,16 +125,46 @@ app.post(
       const data = req.body || {};
       const files = req.files || {};
 
-      // 🛡️ AGB Pflichtprüfung
-if (!req.body?.agbAccepted) {
-  console.log("🛑 Druckdaten blockiert: AGB nicht akzeptiert");
-  return res.status(400).json({
-    error: "Bitte akzeptiere die AGB, um fortzufahren."
-  });
-}
+      // ✅ AGB Pflichtprüfung (serverseitig)
+      if (!isAgbAccepted(data.agbAccepted)) {
+        console.log("🛑 Druckdaten blockiert: AGB nicht akzeptiert");
+        return res.status(400).json({
+          error: "Bitte akzeptiere die AGB, um fortzufahren.",
+        });
+      }
 
+      // ✅ Pflichtdateien prüfen (serverseitig)
+      const cover = files.cover?.[0];
+      const inhalt = files.inhalt?.[0];
+      const autorenbild = files.autorenbild?.[0];
+
+      if (!cover || !inhalt) {
+        return res.status(400).json({
+          error: "Bitte lade Buchcover (PDF) und Buchinhalt (PDF) hoch.",
+        });
+      }
+
+      // ✅ Wenn Autorendruck (Inklusivleistungen = Ja), müssen Inserat-Pflichtfelder vorhanden sein
+      const istAutorendruck = String(data.inklusivleistungen || "").trim().toLowerCase() === "ja";
+      if (istAutorendruck) {
+        const requiredFields = [
+          ["buchtitel", "Bitte trage den Buchtitel ein."],
+          ["verkaufspreis", "Bitte trage den Verkaufspreis ein."],
+          ["genre", "Bitte wähle ein Genre aus."],
+          ["inhaltsangabe", "Bitte trage eine Buchbeschreibung ein."],
+          ["autorname", "Bitte trage den Autor:innenname ein."],
+        ];
+
+        for (const [key, msg] of requiredFields) {
+          if (!String(data[key] || "").trim()) {
+            return res.status(400).json({ error: msg });
+          }
+        }
+      }
+
+      // Mailtext bauen
       let text = "Neuer Druckdaten-Upload (Kundenbereich):\n\n";
-      text += `Druckart/Inklusivleistungen: ${data.inklusivleistungen || data.druckart || "-"}\n`;
+      text += `Inklusivleistungen: ${data.inklusivleistungen || "-"}\n`;
       text += `Bestellnummer: ${data.bestellnummer || "-"}\n`;
       text += `Buchtitel: ${data.buchtitel || "-"}\n`;
       text += `Verkaufspreis: ${data.verkaufspreis || "-"}\n`;
@@ -137,24 +174,20 @@ if (!req.body?.agbAccepted) {
       text += `Autoreninfo: ${data.autoreninfo || "-"}\n`;
       text += `Kontakt-E-Mail: ${data.contactEmail || "-"}\n`;
 
-      const att = [];
-      const cover = files.cover?.[0];
-      const inhalt = files.inhalt?.[0];
-      const autorenbild = files.autorenbild?.[0];
-
-      // Sammle File-Infos
       text += `\n--- Dateien ---\n`;
       text += `Buchcover: ${cover?.originalname || "-"}\n`;
       text += `Buchinhalt: ${inhalt?.originalname || "-"}\n`;
       text += `Autorenbild: ${autorenbild?.originalname || "-"}\n`;
 
       // Attachments (Base64)
+      const att = [];
       const fileList = [cover, inhalt, autorenbild].filter(Boolean);
+
       if (totalBytes(fileList) > MAX_ATTACH_BYTES) {
         text += `\n⚠️ Hinweis: Anhänge waren größer als ${MAX_ATTACH_BYTES / (1024 * 1024)}MB und wurden nicht als Mail-Anhang versendet.\n`;
       } else {
-        if (cover) att.push({ name: cover.originalname, contentBase64: cover.buffer.toString("base64") });
-        if (inhalt) att.push({ name: inhalt.originalname, contentBase64: inhalt.buffer.toString("base64") });
+        att.push({ name: cover.originalname, contentBase64: cover.buffer.toString("base64") });
+        att.push({ name: inhalt.originalname, contentBase64: inhalt.buffer.toString("base64") });
         if (autorenbild) att.push({ name: autorenbild.originalname, contentBase64: autorenbild.buffer.toString("base64") });
       }
 
@@ -244,9 +277,7 @@ app.post("/cover-order", upload.array("files", 20), async (req, res) => {
       `Kurzbeschreibung (optional):\n${blurb}\n\n` +
       `Wünsche & Erklärungen:\n${notes}\n\n` +
       `Anhänge: ${files.length} Datei(en)\n` +
-      `${files
-        .map((f, i) => `  - [${i + 1}] ${f.originalname} (${f.mimetype}, ${f.size} Bytes)`)
-        .join("\n")}\n`;
+      `${files.map((f, i) => `  - [${i + 1}] ${f.originalname} (${f.mimetype}, ${f.size} Bytes)`).join("\n")}\n`;
 
     const attachments = [];
     if (totalBytes(files) > MAX_ATTACH_BYTES) {
@@ -378,7 +409,7 @@ app.get("/ping", (req, res) => {
   res.status(200).json({ message: "Server wach" });
 });
 
-/** Cleanup / Scan / Diag (unverändert) */
+/** Cleanup / Scan / Diag */
 app.get("/cleanup", async (req, res) => {
   try {
     const SECRET = process.env.CLEANUP_SECRET;
@@ -466,25 +497,25 @@ app.post("/create-product", async (req, res) => {
   }
 });
 
-/** Kontaktformular (Brevo API) */
+/** Kontaktformular (Brevo API) + Spam-Schutz */
 app.post("/kontakt", upload.none(), async (req, res) => {
   try {
     const { contact_type, contact_name, contact_email, contact_subject, contact_message } = req.body || {};
 
     // 🛡️ Spam-Schutz: Honeypot
-if (req.body?.website && String(req.body.website).trim() !== "") {
-  console.log("🛑 Spam geblockt (honeypot)");
-  return res.status(200).json({ message: "OK" });
-}
+    if (req.body?.website && String(req.body.website).trim() !== "") {
+      console.log("🛑 Spam geblockt (honeypot)");
+      return res.status(200).json({ message: "OK" });
+    }
 
-// 🛡️ Spam-Schutz: Zeitcheck (Bots sind zu schnell)
-const t = Number(req.body?.formTime || 0);
-const seconds = t ? (Date.now() - t) / 1000 : 0;
+    // 🛡️ Spam-Schutz: Zeitcheck
+    const t = Number(req.body?.formTime || 0);
+    const seconds = t ? (Date.now() - t) / 1000 : 0;
 
-if (!t || seconds < 3) {
-  console.log("🛑 Spam geblockt (zu schnell):", seconds);
-  return res.status(200).json({ message: "OK" });
-}
+    if (!t || seconds < 3) {
+      console.log("🛑 Spam geblockt (zu schnell):", seconds);
+      return res.status(200).json({ message: "OK" });
+    }
 
     const html = `
       <h3>Neue Kontaktanfrage</h3>
