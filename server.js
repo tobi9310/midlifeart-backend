@@ -306,6 +306,51 @@ app.post("/cover-order", upload.array("files", 20), async (req, res) => {
   }
 });
 
+/** ISBN-Service Formular */
+app.post("/isbn-order", upload.none(), async (req, res) => {
+  try {
+
+    const {
+      name = "-",
+      orderNumber = "-",
+      bookTitle = "-",
+      subtitle = "-",
+      authorName = "-",
+      language = "-",
+      publicationYear = "-",
+      contactEmail = "-"
+    } = req.body || {};
+
+    const text =
+      `Neue ISBN-Anfrage (Kundenbereich)\n\n` +
+      `Name: ${name}\n` +
+      `Bestellnummer: ${orderNumber}\n` +
+      `Buchtitel: ${bookTitle}\n` +
+      `Untertitel: ${subtitle}\n` +
+      `Autor: ${authorName}\n` +
+      `Sprache: ${language}\n` +
+      `Erscheinungsjahr: ${publicationYear}\n` +
+      `Kontakt-E-Mail: ${contactEmail}\n`;
+
+    await sendBrevoMail({
+      to: RECEIVER_EMAIL,
+      subject: "Neue ISBN-Anfrage vom Kunden",
+      text,
+      replyTo: contactEmail !== "-" ? contactEmail : undefined
+    });
+
+    res.status(200).json({
+      message: "ISBN-Daten erfolgreich übermittelt."
+    });
+
+  } catch (error) {
+    console.error("Fehler bei /isbn-order:", error);
+    res.status(500).json({
+      error: "ISBN-Daten konnten nicht gesendet werden."
+    });
+  }
+});
+
 /** Rücksende-Anfrage (application/json) */
 app.post("/return-request", async (req, res) => {
   try {
