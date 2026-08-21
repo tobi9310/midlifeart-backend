@@ -26,7 +26,11 @@ async function shopify(path, opts = {}) {
   return json;
 }
 
-async function createProduct({ title, price }) {
+async function createProduct({ 
+  title,
+  price,
+shippingRequired
+}) {
   const created = await shopify('/products.json', {
     method: 'POST',
     body: JSON.stringify({
@@ -38,7 +42,8 @@ async function createProduct({ title, price }) {
           {
             price: String(price),
             inventory_management: null,
-            inventory_policy: 'continue'
+            inventory_policy: 'continue',
+            requires_shipping: shippingRequired === true
           }
         ]
       }
