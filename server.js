@@ -558,48 +558,518 @@ app.post("/create-product", async (req, res) => {
   }
 });
 
-/** Kontaktformular (Brevo API) + Spam-Schutz */
-app.post("/kontakt", upload.none(), async (req, res) => {
-  try {
-    const { contact_type, contact_name, contact_email, contact_subject, contact_message } = req.body || {};
+/** Kontaktformular (Brevo API) + erweiterter Spam-Schutz + Datei-Upload */
 
-    // 🛡️ Spam-Schutz: Honeypot
-    if (req.body?.website && String(req.body.website).trim() !== "") {
-      console.log("🛑 Spam geblockt (honeypot)");
-      return res.status(200).json({ message: "OK" });
-    }
+// Einfaches Rate-Limit nur für das Kontaktformular.
+// Speicherung im RAM – beeinflusst keine anderen Serverfunktionen.
+const kontaktRateLimit = new Map();
 
-    // 🛡️ Spam-Schutz: Zeitcheck
-    const t = Number(req.body?.formTime || 0);
-    const seconds = t ? (Date.now() - t) / 1000 : 0;
+function kontaktGetIp(req) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "")
+    .split(",")[0]
+    .trim();
 
-    if (!t || seconds < 3) {
-      console.log("🛑 Spam geblockt (zu schnell):", seconds);
-      return res.status(200).json({ message: "OK" });
-    }
+  return forwarded || req.ip || "unknown";
+}
 
-    const html = `
-      <h3>Neue Kontaktanfrage</h3>
-      <p><b>Ich bin:</b> ${contact_type || "-"}</p>
-      <p><b>Name:</b> ${contact_name || "-"}</p>
-      <p><b>E-Mail:</b> ${contact_email || "-"}</p>
-      <p><b>Betreff:</b> ${contact_subject || "-"}</p>
-      <p><b>Nachricht:</b><br>${(contact_message || "-").replace(/\n/g, "<br>")}</p>
-    `;
+function kontaktIsRateLimited(req) {
+  const ip = kontaktGetIp(req);
+  const now = Date.now();
 
-    await sendBrevoMail({
-      to: CONTACT_RECEIVER_EMAIL,
-      subject: `Kontaktanfrage: ${contact_subject || "(ohne Betreff)"}`,
-      html,
-      replyTo: contact_email || undefined,
-    });
+  // 15 Minuten
+  const windowMs = 15 * 60 * 1000;
 
-    res.status(200).json({ message: "Nachricht erfolgreich versendet." });
-  } catch (error) {
-    console.error("Fehler bei /kontakt:", error);
-    res.status(500).json({ error: "Nachricht konnte nicht gesendet werden." });
+  // Maximal 5 Versuche innerhalb dieses Zeitraums
+  const maxRequests = 5;
+
+  const previous = kontaktRateLimit.get(ip) || [];
+
+  const recent = previous.filter(
+    timestamp => now - timestamp < windowMs
+  );
+
+  recent.push(now);
+  kontaktRateLimit.set(ip, recent);
+
+  return recent.length > maxRequests;
+}
+
+
+/**
+ * Spam-Punktesystem.
+ *
+ * Wichtig:
+ * Ein einzelnes Wort wie "WhatsApp", "Marketing"
+ * oder "Bestellungen" blockiert NICHT automatisch.
+ *
+ * Erst mehrere typische Merkmale zusammen ergeben
+ * genügend Punkte für eine Blockierung.
+ */
+function kontaktSpamScore({
+  contact_name,
+  contact_email,
+  contact_subject,
+  contact_message
+}) {
+
+  const text = [
+    contact_name,
+    contact_email,
+    contact_subject,
+    contact_message
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  let score = 0;
+  const reasons = [];
+
+
+  function add(points, reason) {
+    score += points;
+    reasons.push(reason);
   }
-});
+
+
+  // Typische Marketing-/Akquise-Angebote
+  if (
+    /\b(marketing|marketer|marketingstrategie|marketing strategy|e-?commerce marketing|youtube marketing|tiktok marketing)\b/i.test(text)
+  ) {
+    add(2, "Marketing-Angebot");
+  }
+
+
+  // Versprechen, Bestellungen / Verkäufe zu generieren
+  if (
+    /\b(generate|generieren|bringen|bring|drive|deliver)\b.{0,60}\b(orders?|bestellungen|sales|verkäufe|kunden)\b/i.test(text) ||
+    /\b(orders?|bestellungen|sales|verkäufe)\b.{0,60}\b(generate|generieren|bringen|bring|drive|deliver)\b/i.test(text)
+  ) {
+    add(3, "Verkaufs-/Bestellversprechen");
+  }
+
+
+  // Typische Zahlenversprechen:
+  // "30-50 orders", "40 Bestellungen", "200 sales" usw.
+  if (
+    /\b\d{2,4}\s*(?:-|–|—|bis|to)?\s*\d{0,4}\s*(orders?|bestellungen|sales|verkäufe)\b/i.test(text)
+  ) {
+    add(3, "Zahlenversprechen");
+  }
+
+
+  // Testlauf / Trial-Angebote
+  if (
+    /\b(testlauf|test run|trial|probephase|pilotprojekt|pilot project)\b/i.test(text)
+  ) {
+    add(2, "Testlauf-Angebot");
+  }
+
+
+  // Zusammenarbeit / Kooperation in Akquise-Kontext
+  if (
+    /\b(zusammenarbeit|kooperation|collaboration|partnership|partner with|work together)\b/i.test(text)
+  ) {
+    add(1, "Kooperationsangebot");
+  }
+
+
+  // WhatsApp / Telegram allein reicht ausdrücklich NICHT zum Blockieren
+  if (
+    /\b(whatsapp|telegram)\b/i.test(text)
+  ) {
+    add(1, "Messenger erwähnt");
+  }
+
+
+  // Typische Formulierungen aus automatisierter Shop-Akquise
+  if (
+    /\b(increase|boost|scale|grow|steigern|erhöhen)\b.{0,50}\b(sales|orders?|umsatz|verkäufe|bestellungen)\b/i.test(text)
+  ) {
+    add(2, "Wachstumsversprechen");
+  }
+
+
+  // Viele URLs sind bei einer normalen Kontaktanfrage ungewöhnlich.
+  const urls =
+    text.match(/https?:\/\/|www\./gi) || [];
+
+  if (urls.length >= 2) {
+    add(2, "Mehrere Links");
+  }
+
+  if (urls.length >= 4) {
+    add(2, "Sehr viele Links");
+  }
+
+
+  return {
+    score,
+    reasons
+  };
+}
+
+
+/**
+ * HTML escapen, damit Inhalte aus dem öffentlichen
+ * Formular nicht ungefiltert in der HTML-Mail landen.
+ */
+function kontaktEscapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+
+/**
+ * Kontaktformular
+ *
+ * Eine optionale Datei:
+ * PDF / JPG / PNG
+ * maximal 5 MB
+ */
+app.post(
+  "/kontakt",
+
+  upload.single("contact_file"),
+
+  async (req, res) => {
+
+    try {
+
+      const {
+        contact_type,
+        contact_name,
+        contact_email,
+        contact_subject,
+        contact_message
+      } = req.body || {};
+
+
+      /**********************************************
+       * 1. Honeypot
+       **********************************************/
+
+      if (
+        req.body?.website &&
+        String(req.body.website).trim() !== ""
+      ) {
+
+        console.log(
+          "🛑 Kontakt-Spam geblockt: Honeypot"
+        );
+
+        // Absichtlich Erfolg vortäuschen.
+        return res.status(200).json({
+          message: "Nachricht erfolgreich versendet."
+        });
+
+      }
+
+
+      /**********************************************
+       * 2. Zeitcheck
+       *
+       * Unter 5 Sekunden ist für dieses Formular
+       * sehr verdächtig.
+       **********************************************/
+
+      const formTime =
+        Number(req.body?.formTime || 0);
+
+      const seconds =
+        formTime
+          ? (Date.now() - formTime) / 1000
+          : 0;
+
+
+      if (
+        !formTime ||
+        seconds < 5
+      ) {
+
+        console.log(
+          "🛑 Kontakt-Spam geblockt: zu schnell",
+          seconds
+        );
+
+        return res.status(200).json({
+          message: "Nachricht erfolgreich versendet."
+        });
+
+      }
+
+
+      /**********************************************
+       * 3. Rate Limit
+       **********************************************/
+
+      if (
+        kontaktIsRateLimited(req)
+      ) {
+
+        console.log(
+          "🛑 Kontakt-Spam geblockt: Rate Limit",
+          kontaktGetIp(req)
+        );
+
+        return res.status(200).json({
+          message: "Nachricht erfolgreich versendet."
+        });
+
+      }
+
+
+      /**********************************************
+       * 4. Grundlegende serverseitige Validierung
+       **********************************************/
+
+      const type =
+        String(contact_type || "").trim();
+
+      const name =
+        String(contact_name || "").trim();
+
+      const email =
+        String(contact_email || "").trim();
+
+      const subject =
+        String(contact_subject || "").trim();
+
+      const message =
+        String(contact_message || "").trim();
+
+
+      if (
+        !type ||
+        name.length < 2 ||
+        subject.length < 3 ||
+        message.length < 10
+      ) {
+
+        return res.status(400).json({
+          error: "Bitte fülle alle Pflichtfelder vollständig aus."
+        });
+
+      }
+
+
+      if (
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+      ) {
+
+        return res.status(400).json({
+          error: "Bitte gib eine gültige E-Mail-Adresse ein."
+        });
+
+      }
+
+
+      // Gleiche Maximalwerte wie im Frontend.
+      if (
+        name.length > 100 ||
+        email.length > 160 ||
+        subject.length > 150 ||
+        message.length > 5000
+      ) {
+
+        return res.status(400).json({
+          error: "Eine oder mehrere Eingaben sind zu lang."
+        });
+
+      }
+
+
+      /**********************************************
+       * 5. Spam-Punktesystem
+       **********************************************/
+
+      const spam =
+        kontaktSpamScore({
+          contact_name: name,
+          contact_email: email,
+          contact_subject: subject,
+          contact_message: message
+        });
+
+
+      /*
+       * Ab 5 Punkten wird still geblockt.
+       *
+       * Beispiele:
+       *
+       * Marketing + 30–50 Bestellungen
+       * = deutlich über dem Grenzwert
+       *
+       * Kunde erwähnt nur "WhatsApp"
+       * = weit unter dem Grenzwert
+       */
+
+      if (
+        spam.score >= 5
+      ) {
+
+        console.log(
+          "🛑 Kontakt-Spam geblockt:",
+          {
+            score: spam.score,
+            reasons: spam.reasons
+          }
+        );
+
+        return res.status(200).json({
+          message: "Nachricht erfolgreich versendet."
+        });
+
+      }
+
+
+      /**********************************************
+       * 6. Optionaler Datei-Upload
+       **********************************************/
+
+      const file =
+        req.file;
+
+
+      const attachments = [];
+
+
+      if (file) {
+
+        const allowedTypes = [
+          "application/pdf",
+          "image/jpeg",
+          "image/png"
+        ];
+
+
+        if (
+          !allowedTypes.includes(file.mimetype)
+        ) {
+
+          return res.status(400).json({
+            error: "Bitte lade nur PDF-, JPG- oder PNG-Dateien hoch."
+          });
+
+        }
+
+
+        const maxFileBytes =
+          5 * 1024 * 1024;
+
+
+        if (
+          file.size > maxFileBytes
+        ) {
+
+          return res.status(400).json({
+            error: "Die Datei darf maximal 5 MB groß sein."
+          });
+
+        }
+
+
+        attachments.push({
+          name:
+            file.originalname ||
+            "Kontakt-Anhang",
+
+          contentBase64:
+            file.buffer.toString("base64")
+        });
+
+      }
+
+
+      /**********************************************
+       * 7. Mail erstellen
+       **********************************************/
+
+      const html = `
+        <h3>Neue Kontaktanfrage</h3>
+
+        <p>
+          <b>Ich bin:</b>
+          ${kontaktEscapeHtml(type)}
+        </p>
+
+        <p>
+          <b>Name:</b>
+          ${kontaktEscapeHtml(name)}
+        </p>
+
+        <p>
+          <b>E-Mail:</b>
+          ${kontaktEscapeHtml(email)}
+        </p>
+
+        <p>
+          <b>Betreff:</b>
+          ${kontaktEscapeHtml(subject)}
+        </p>
+
+        <p>
+          <b>Nachricht:</b><br>
+          ${kontaktEscapeHtml(message).replace(/\n/g, "<br>")}
+        </p>
+
+        ${
+          file
+            ? `<p><b>Anhang:</b> ${kontaktEscapeHtml(file.originalname)}</p>`
+            : ""
+        }
+      `;
+
+
+      /**********************************************
+       * 8. Über bestehenden Brevo-Helper senden
+       **********************************************/
+
+      await sendBrevoMail({
+
+        to:
+          CONTACT_RECEIVER_EMAIL,
+
+        subject:
+          `Kontaktanfrage: ${subject}`,
+
+        html,
+
+        replyTo:
+          email,
+
+        attachments
+
+      });
+
+
+      res.status(200).json({
+        message:
+          "Nachricht erfolgreich versendet."
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        "Fehler bei /kontakt:",
+        error
+      );
+
+
+      res.status(500).json({
+        error:
+          "Nachricht konnte nicht gesendet werden."
+      });
+
+    }
+
+  }
+);
 
 /** Start */
 const server = app.listen(port, () => {
