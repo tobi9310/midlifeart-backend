@@ -526,8 +526,17 @@ const shop = "7456d9-4.myshopify.com";
 /** Konfigurator: Produkt erstellen */
 app.post("/create-product", async (req, res) => {
   try {
-    const { title, price } = req.body;
-    const result = await createProduct({ title, price });
+    const {
+      title,
+      price,
+      shippingRequired
+    } = req.body;
+
+    const result = await createProduct({
+      title,
+      price,
+      shippingRequired: shippingRequired === true
+    });
 
     res.status(200).json({
       message: "✅ Produkt erfolgreich erstellt",
@@ -536,9 +545,16 @@ app.post("/create-product", async (req, res) => {
       variantId: result.variantId,
       legacyVariantId: result.legacyVariantId,
     });
+
   } catch (error) {
-    console.error("❌ Fehler beim Erstellen des Produkts:", error?.message || error);
-    res.status(500).json({ error: "Produkt konnte nicht erstellt werden" });
+    console.error(
+      "❌ Fehler beim Erstellen des Produkts:",
+      error?.message || error
+    );
+
+    res.status(500).json({
+      error: "Produkt konnte nicht erstellt werden"
+    });
   }
 });
 
