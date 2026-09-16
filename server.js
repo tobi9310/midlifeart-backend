@@ -207,6 +207,80 @@ app.post(
   }
 );
 
+/**
+ * NACHBESTELLUNG
+ *
+ * Diesen Block in server.js bei den Formular-Routen ergänzen,
+ * z. B. direkt vor dem bestehenden Buchinserat-Formular.
+ *
+ * Bestehende Routen – insbesondere /upload – bleiben unverändert.
+ */
+app.post("/reorder-request", upload.none(), async (req, res) => {
+  try {
+    const {
+      bestellnummer = "",
+      buchtitel = "",
+      contactEmail = "",
+      customer_id = "",
+      customer_email = "",
+      customer_name = "",
+    } = req.body || {};
+
+    const orderNumber = String(bestellnummer).trim();
+    const bookTitle = String(buchtitel).trim();
+    const email = String(contactEmail).trim();
+
+    if (!orderNumber) {
+      return res.status(400).json({
+        error: "Bitte trage deine Bestellnummer ein.",
+      });
+    }
+
+    if (!bookTitle) {
+      return res.status(400).json({
+        error: "Bitte trage den Buchtitel der Nachbestellung ein.",
+      });
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({
+        error: "Bitte trage eine gültige Kontakt-E-Mail ein.",
+      });
+    }
+
+    const text =
+      `Neue Nachbestellung (Kundenbereich)\n\n` +
+      `Neue Bestellnummer: ${orderNumber}\n` +
+      `Bestehendes Buchprojekt: ${bookTitle}\n` +
+      `Kontakt-E-Mail: ${email}\n` +
+      `Shopify-Kunde: ${String(customer_name || "-").trim() || "-"}\n` +
+      `Shopify-Kunden-E-Mail: ${String(customer_email || "-").trim() || "-"}\n` +
+      `Shopify-Kunden-ID: ${String(customer_id || "-").trim() || "-"}\n\n` +
+      `Hinweis: Für diese Nachbestellung sollen die bereits freigegebenen ` +
+      `Druckdaten des genannten Buchprojekts erneut verwendet werden.\n`;
+
+    await sendBrevoMail({
+      to: RECEIVER_EMAIL,
+      subject: `Nachbestellung: ${bookTitle} – ${orderNumber}`,
+      text,
+      replyTo: email,
+    });
+
+    res.status(200).json({
+      ok: true,
+      message: "Nachbestellung erfolgreich übermittelt.",
+    });
+
+  } catch (error) {
+    console.error("Fehler bei /reorder-request:", error);
+
+    res.status(500).json({
+      error: "Nachbestellung konnte nicht übermittelt werden.",
+    });
+  }
+});
+
+
 /** Buchinserat-Formular (optional Autor:innenbild) */
 app.post("/inserat", upload.single("autorenbild"), async (req, res) => {
   try {
