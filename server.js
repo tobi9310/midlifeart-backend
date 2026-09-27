@@ -335,6 +335,9 @@ app.post("/cover-order", upload.array("files", 20), async (req, res) => {
       name = "-",
       orderNumber = "-",
       bookTitle = "-",
+      bookFormat = "-",
+      customFormat = "",
+      pageCount = "-",
       blurb = "-",
       notes = "-",
       contactEmail = "-",
@@ -342,11 +345,20 @@ app.post("/cover-order", upload.array("files", 20), async (req, res) => {
 
     const files = req.files || [];
 
+    // Bei "Anderes Format" das frei eingegebene Maß lesbar in der Mail ausgeben.
+    // Die bestehenden Feldnamen und der restliche Cover-Workflow bleiben unverändert.
+    const resolvedBookFormat =
+      bookFormat === "Anderes Format" && String(customFormat).trim()
+        ? `${bookFormat}: ${String(customFormat).trim()}`
+        : bookFormat;
+
     let text =
       `Neues Cover-Briefing (Kundenbereich)\n` +
       `Absender:        ${name}\n` +
       `Bestellnummer:   ${orderNumber}\n` +
       `Buchtitel:       ${bookTitle}\n` +
+      `Buchformat:      ${resolvedBookFormat}\n` +
+      `Seitenzahl:      ${pageCount}\n` +
       `Kontakt-E-Mail:  ${contactEmail}\n\n` +
       `Kurzbeschreibung (optional):\n${blurb}\n\n` +
       `Wünsche & Erklärungen:\n${notes}\n\n` +
