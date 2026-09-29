@@ -77,6 +77,9 @@ function totalBytes(files = []) {
   return files.reduce((sum, f) => sum + (f?.size || 0), 0);
 }
 
+/** Aktuelle AGB-Version für Nachweis und Formularprüfung */
+const AGB_VERSION = "29.09.2026";
+
 /** Helper: AGB akzeptiert? (Checkbox kann "true" oder "on" sein) */
 function isAgbAccepted(value) {
   const v = String(value ?? "").toLowerCase().trim();
@@ -109,6 +112,12 @@ app.post("/submit", upload.none(), async (req, res) => {
       "kleinunternehmer",
       "regelbesteuert",
     ];
+
+    if (!isAgbAccepted(formData.agbAccepted)) {
+      return res.status(400).json({
+        error: "Bitte akzeptiere die AGB, um fortzufahren.",
+      });
+    }
 
     // Serverseitige Pflichtprüfung, damit auch direkte Requests keine
     // unvollständigen Auszahlungskonten erzeugen.
@@ -169,6 +178,9 @@ app.post("/submit", upload.none(), async (req, res) => {
     formData.iban = iban;
     formData.steuerstatus = steuerstatus;
     formData.steuerstatus_gueltig_ab = steuerstatusGueltigAb;
+    formData.agbAccepted = "Ja";
+    formData.agbVersion = AGB_VERSION;
+    formData.agbAcceptedAt = new Date().toISOString();
 
     if (brauchtSteuerId) {
       formData.steuer_id = steuerId;
@@ -186,6 +198,9 @@ app.post("/submit", upload.none(), async (req, res) => {
       customer_id: "Shopify-Kunden-ID",
       customer_email: "Shopify-Kunden-E-Mail",
       customer_name: "Shopify-Kundenname",
+      agbAccepted: "AGB akzeptiert",
+      agbVersion: "AGB-Version",
+      agbAcceptedAt: "AGB akzeptiert am",
     };
 
     let text = "Neue Auszahlungskonto Übermittlung:\n\n";
@@ -270,6 +285,9 @@ app.post(
       text += `Autor:innenname: ${data.autorname || "-"}\n`;
       text += `Autoreninfo: ${data.autoreninfo || "-"}\n`;
       text += `Kontakt-E-Mail: ${data.contactEmail || "-"}\n`;
+      text += `AGB akzeptiert: Ja\n`;
+      text += `AGB-Version: ${AGB_VERSION}\n`;
+      text += `AGB akzeptiert am: ${new Date().toISOString()}\n`;
 
       text += `\n--- Dateien ---\n`;
       text += `Buchcover: ${cover?.originalname || "-"}\n`;
@@ -321,11 +339,19 @@ app.post("/reorder-request", upload.none(), async (req, res) => {
       customer_id = "",
       customer_email = "",
       customer_name = "",
+      agbAccepted = "",
+      agbVersion = "",
     } = req.body || {};
 
     const orderNumber = String(bestellnummer).trim();
     const bookTitle = String(buchtitel).trim();
     const email = String(contactEmail).trim();
+
+    if (!isAgbAccepted(agbAccepted)) {
+      return res.status(400).json({
+        error: "Bitte akzeptiere die AGB, um fortzufahren.",
+      });
+    }
 
     if (!orderNumber) {
       return res.status(400).json({
@@ -352,7 +378,10 @@ app.post("/reorder-request", upload.none(), async (req, res) => {
       `Kontakt-E-Mail: ${email}\n` +
       `Shopify-Kunde: ${String(customer_name || "-").trim() || "-"}\n` +
       `Shopify-Kunden-E-Mail: ${String(customer_email || "-").trim() || "-"}\n` +
-      `Shopify-Kunden-ID: ${String(customer_id || "-").trim() || "-"}\n\n` +
+      `Shopify-Kunden-ID: ${String(customer_id || "-").trim() || "-"}\n` +
+      `AGB akzeptiert: Ja\n` +
+      `AGB-Version: ${AGB_VERSION}\n` +
+      `AGB akzeptiert am: ${new Date().toISOString()}\n\n` +
       `Hinweis: Für diese Nachbestellung sollen die bereits freigegebenen ` +
       `Druckdaten des genannten Buchprojekts erneut verwendet werden.\n`;
 
@@ -438,7 +467,15 @@ app.post("/cover-order", upload.array("files", 20), async (req, res) => {
       blurb = "-",
       notes = "-",
       contactEmail = "-",
+      agbAccepted = "",
+      agbVersion = "",
     } = req.body || {};
+
+    if (!isAgbAccepted(agbAccepted)) {
+      return res.status(400).json({
+        error: "Bitte akzeptiere die AGB, um fortzufahren.",
+      });
+    }
 
     const files = req.files || [];
 
@@ -456,7 +493,10 @@ app.post("/cover-order", upload.array("files", 20), async (req, res) => {
       `Buchtitel:       ${bookTitle}\n` +
       `Buchformat:      ${resolvedBookFormat}\n` +
       `Seitenzahl:      ${pageCount}\n` +
-      `Kontakt-E-Mail:  ${contactEmail}\n\n` +
+      `Kontakt-E-Mail:  ${contactEmail}\n` +
+      `AGB akzeptiert:  Ja\n` +
+      `AGB-Version:     ${AGB_VERSION}\n` +
+      `AGB akzeptiert am: ${new Date().toISOString()}\n\n` +
       `Kurzbeschreibung (optional):\n${blurb}\n\n` +
       `Wünsche & Erklärungen:\n${notes}\n\n` +
       `Anhänge: ${files.length} Datei(en)\n` +
@@ -544,7 +584,15 @@ app.post("/return-request", async (req, res) => {
       address = {},
       contactEmail = "-",
       notes = "",
+      agbAccepted = "",
+      agbVersion = "",
     } = req.body || {};
+
+    if (!isAgbAccepted(agbAccepted)) {
+      return res.status(400).json({
+        error: "Bitte akzeptiere die AGB, um fortzufahren.",
+      });
+    }
 
     const { name: addrName = "", street = "", zip = "", city = "", country = "" } = address || {};
 
@@ -554,6 +602,9 @@ app.post("/return-request", async (req, res) => {
       `Bestell/Projekt: ${orderNumber}\n` +
       `Anzahl Bücher:   ${quantity}\n` +
       `Kontakt-E-Mail:  ${contactEmail}\n` +
+      `AGB akzeptiert:  Ja\n` +
+      `AGB-Version:     ${AGB_VERSION}\n` +
+      `AGB akzeptiert am: ${new Date().toISOString()}\n` +
       `Rücksende-Adresse:\n` +
       `  ${addrName}\n  ${street}\n  ${zip} ${city}\n  ${country}\n\n` +
       `Notizen:\n${notes || "(keine)"}\n`;
