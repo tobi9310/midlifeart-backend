@@ -91,7 +91,74 @@ function isAgbAccepted(value) {
 app.post("/submit", upload.none(), async (req, res) => {
   try {
     const formData = req.body || {};
-    const labels = { kontoinhaber: "Kontoinhaber", bank: "Bank", iban: "IBAN" };
+
+    // Bestehende Bankdaten bleiben unverändert.
+    const kontoinhaber = String(formData.kontoinhaber || "").trim();
+    const bank = String(formData.bank || "").trim();
+    const iban = String(formData.iban || "").trim().replace(/\s+/g, "").toUpperCase();
+
+    // Neuer steuerlicher Status aus dem Kundenbereich.
+    const steuerstatus = String(formData.steuerstatus || "").trim();
+    const steuerId = String(formData.steuer_id || "").trim();
+
+    const erlaubteSteuerstatus = [
+      "privatperson",
+      "kleinunternehmer",
+      "regelbesteuert",
+    ];
+
+    // Serverseitige Pflichtprüfung, damit auch direkte Requests keine
+    // unvollständigen Auszahlungskonten erzeugen.
+    if (!kontoinhaber || !bank || !iban) {
+      return res.status(400).json({
+        error: "Bitte fülle alle Bankdaten vollständig aus.",
+      });
+    }
+
+    if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(iban)) {
+      return res.status(400).json({
+        error: "Bitte gib eine gültige IBAN ein.",
+      });
+    }
+
+    if (!erlaubteSteuerstatus.includes(steuerstatus)) {
+      return res.status(400).json({
+        error: "Bitte wähle deinen steuerlichen Status aus.",
+      });
+    }
+
+    const brauchtSteuerId =
+      steuerstatus === "kleinunternehmer" ||
+      steuerstatus === "regelbesteuert";
+
+    if (brauchtSteuerId && !steuerId) {
+      return res.status(400).json({
+        error: "Bitte gib deine Steuernummer oder USt-IdNr. an.",
+      });
+    }
+
+    // Werte normalisieren, ohne die bestehende Formular-/Mail-Kette zu ändern.
+    formData.kontoinhaber = kontoinhaber;
+    formData.bank = bank;
+    formData.iban = iban;
+    formData.steuerstatus = steuerstatus;
+
+    if (brauchtSteuerId) {
+      formData.steuer_id = steuerId;
+    } else {
+      delete formData.steuer_id;
+    }
+
+    const labels = {
+      kontoinhaber: "Kontoinhaber",
+      bank: "Bank",
+      iban: "IBAN",
+      steuerstatus: "Steuerstatus",
+      steuer_id: "Steuernummer/USt-IdNr.",
+      customer_id: "Shopify-Kunden-ID",
+      customer_email: "Shopify-Kunden-E-Mail",
+      customer_name: "Shopify-Kundenname",
+    };
 
     let text = "Neue Auszahlungskonto Übermittlung:\n\n";
     for (const key in formData) {
@@ -105,7 +172,9 @@ app.post("/submit", upload.none(), async (req, res) => {
       text,
     });
 
-    res.status(200).json({ message: "E-Mail erfolgreich gesendet." });
+    res.status(200).json({
+      message: "Auszahlungsdaten erfolgreich gesendet.",
+    });
   } catch (error) {
     console.error("Fehler bei /submit:", error);
     res.status(500).json({ error: "Fehler beim E-Mail-Versand." });
