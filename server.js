@@ -100,6 +100,9 @@ app.post("/submit", upload.none(), async (req, res) => {
     // Neuer steuerlicher Status aus dem Kundenbereich.
     const steuerstatus = String(formData.steuerstatus || "").trim();
     const steuerId = String(formData.steuer_id || "").trim();
+    const steuerstatusGueltigAb = String(
+      formData.steuerstatus_gueltig_ab || ""
+    ).trim();
 
     const erlaubteSteuerstatus = [
       "privatperson",
@@ -127,6 +130,29 @@ app.post("/submit", upload.none(), async (req, res) => {
       });
     }
 
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(steuerstatusGueltigAb)) {
+      return res.status(400).json({
+        error: "Bitte gib an, ab wann dein Steuerstatus gilt.",
+      });
+    }
+
+    const [gueltigJahr, gueltigMonat, gueltigTag] =
+      steuerstatusGueltigAb.split("-").map(Number);
+
+    const gueltigDatum = new Date(
+      Date.UTC(gueltigJahr, gueltigMonat - 1, gueltigTag)
+    );
+
+    if (
+      gueltigDatum.getUTCFullYear() !== gueltigJahr ||
+      gueltigDatum.getUTCMonth() !== gueltigMonat - 1 ||
+      gueltigDatum.getUTCDate() !== gueltigTag
+    ) {
+      return res.status(400).json({
+        error: "Das Datum für den Steuerstatus ist ungültig.",
+      });
+    }
+
     const brauchtSteuerId =
       steuerstatus === "kleinunternehmer" ||
       steuerstatus === "regelbesteuert";
@@ -142,6 +168,7 @@ app.post("/submit", upload.none(), async (req, res) => {
     formData.bank = bank;
     formData.iban = iban;
     formData.steuerstatus = steuerstatus;
+    formData.steuerstatus_gueltig_ab = steuerstatusGueltigAb;
 
     if (brauchtSteuerId) {
       formData.steuer_id = steuerId;
@@ -155,6 +182,7 @@ app.post("/submit", upload.none(), async (req, res) => {
       iban: "IBAN",
       steuerstatus: "Steuerstatus",
       steuer_id: "Steuernummer/USt-IdNr.",
+      steuerstatus_gueltig_ab: "Steuerstatus gültig ab",
       customer_id: "Shopify-Kunden-ID",
       customer_email: "Shopify-Kunden-E-Mail",
       customer_name: "Shopify-Kundenname",
