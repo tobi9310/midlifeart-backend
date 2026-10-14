@@ -274,8 +274,19 @@ app.post(
         }
       }
 
+      // Bestellart für die interne Mail lesbar ausgeben.
+      // Die bestehende Upload-/Inklusivleistungen-Logik bleibt unverändert.
+      const bestellartLabels = {
+        "fuer-dich": "Für dich drucken",
+        verkaufen: "Mit Midlifeart verkaufen",
+        probeexemplar: "Probeexemplar",
+      };
+      const bestellartRaw = String(data.bestellart || "").trim();
+      const bestellartLabel = bestellartLabels[bestellartRaw] || bestellartRaw || "-";
+
       // Mailtext bauen
       let text = "Neuer Druckdaten-Upload (Kundenbereich):\n\n";
+      text += `Bestellart: ${bestellartLabel}\n`;
       text += `Inklusivleistungen: ${data.inklusivleistungen || "-"}\n`;
       text += `Bestellnummer: ${data.bestellnummer || "-"}\n`;
       text += `Buchtitel: ${data.buchtitel || "-"}\n`;
