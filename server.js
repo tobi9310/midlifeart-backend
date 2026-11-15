@@ -1365,4 +1365,4 @@ const server = app.listen(port, () => {
   console.log(`Server läuft auf Port ${port}`);
 });
 
-module.exports = serve
+module.exports = server;
