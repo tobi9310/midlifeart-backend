@@ -803,6 +803,50 @@ app.post("/create-product", async (req, res) => {
   }
 });
 
+/**
+ * V31 – Validierte Konfigurator-Produktanlage (getrennt vom bisherigen /create-product).
+ * Keine Preise aus dem Browser übernehmen; bestehende Shop-Routen bleiben unverändert.
+ * Vor Livebetrieb: Modul konfigurator/pricing-v31.js bereitstellen.
+ */
+app.post('/create-product-v31', async (req, res) => {
+  let calculation;
+  try {
+    calculation = require('./konfigurator/pricing-v31').priceFor(req.body?.configuration);
+  } catch (err) {
+    if (err?.status === 400) {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('V31 Preisvalidierung:', err?.message || err);
+    return res.status(500).json({ error: 'Preisvalidierung momentan nicht verfügbar.' });
+  }
+  // Preisabweichungen bereits VOR der Shopify-Produktanlage stoppen.
+  // Der Browserwert ist nur eine Vergleichsangabe, niemals die Preisquelle.
+  if (!Number.isSafeInteger(req.body?.expectedTotalCents) ||
+      req.body.expectedTotalCents !== calculation.totalCents) {
+    return res.status(409).json({ error: 'Preisabweichung: Bitte den Konfigurator neu laden.' });
+  }
+  try {
+    const result = await createProduct({
+      title: 'Druckpaket: Buchdruck',
+      price: calculation.totalEuros,
+      shippingRequired: calculation.shippingRequired
+    });
+    // Für die neue Frontend-Version gesicherte Daten zurückgeben.
+    return res.status(200).json({
+      message: 'Produkt erfolgreich erstellt',
+      produktId: result.legacyVariantId,
+      productId: result.productId,
+      variantId: result.variantId,
+      legacyVariantId: result.legacyVariantId,
+      totalCents: calculation.totalCents,
+      orderProperties: calculation.orderProperties
+    });
+  } catch (err) {
+    console.error('V31 Produktanlage:', err?.message || err);
+    return res.status(500).json({ error: 'Produkt konnte nicht erstellt werden.' });
+  }
+});
+
 /** Kontaktformular (Brevo API) + erweiterter Spam-Schutz + Datei-Upload */
 
 // Einfaches Rate-Limit nur für das Kontaktformular.
@@ -1321,4 +1365,4 @@ const server = app.listen(port, () => {
   console.log(`Server läuft auf Port ${port}`);
 });
 
-module.exports = server;
+module.exports = serve
