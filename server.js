@@ -847,6 +847,50 @@ app.post('/create-product-v31', async (req, res) => {
   }
 });
 
+/**
+ * Midlifeart V32 - Buchdruck inkl. Druckdatenpruefung und +17 EUR Auftragsfixkosten
+ * NEUE Route V32. Bestehende Route /create-product-v31 NICHT aendern!
+ * Einfuegen in server.js VOR app.listen(...), bei den anderen Produkt-Routen.
+ * Voraussetzung: konfigurator/pricing-v32.js bereitgestellt.
+ */
+app.post('/create-product-v32', async (req, res) => {
+  let calculation;
+  try {
+    calculation = require('./konfigurator/pricing-v32').priceFor(req.body?.configuration);
+  } catch (err) {
+    if (err?.status === 400) return res.status(400).json({ error: err.message });
+    console.error('V32 Preisvalidierung:', err?.message || err);
+    return res.status(500).json({ error: 'Buchpreis konnte nicht berechnet werden.' });
+  }
+
+  // Serverseitiger Preis bleibt verbindlich; Browser-Preis wird niemals uebernommen.
+  if (!Number.isSafeInteger(req.body?.expectedTotalCents) ||
+      req.body.expectedTotalCents !== calculation.totalCents) {
+    return res.status(409).json({ error: 'Der Buchpreis hat sich geaendert. Bitte Seite neu laden.' });
+  }
+
+  try {
+    const result = await createProduct({
+      title: 'Druckpaket: Buchdruck',
+      price: calculation.totalEuros,
+      shippingRequired: calculation.shippingRequired
+    });
+    return res.status(200).json({
+      message: 'Produkt erfolgreich erstellt',
+      produktId: result.legacyVariantId,
+      productId: result.productId,
+      variantId: result.variantId,
+      legacyVariantId: result.legacyVariantId,
+      totalCents: calculation.totalCents,
+      orderProperties: calculation.orderProperties
+    });
+  } catch (err) {
+    console.error('V32 Produktanlage:', err?.message || err);
+    return res.status(500).json({ error: 'Produkt konnte nicht erstellt werden.' });
+  }
+});
+
+
 /** Kontaktformular (Brevo API) + erweiterter Spam-Schutz + Datei-Upload */
 
 // Einfaches Rate-Limit nur für das Kontaktformular.
