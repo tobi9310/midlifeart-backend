@@ -803,6 +803,47 @@ app.post("/create-product", async (req, res) => {
   }
 });
 
+/** V33-Schutz und neue Bestellroute.
+ * ACHTUNG: Den gesamten Block in server.js VOR den bisherigen
+ * app.post('/create-product-v31', ...) / app.post('/create-product-v32', ...) Routen einfügen.
+ * Nicht ans Dateiende setzen: sonst könnten alte Routen bereits antworten.
+ * Andere Endpunkte, darunter /create-product, bleiben unangetastet.
+ */
+app.post(['/create-product-v31','/create-product-v32'],(req,res)=>{
+  res.set('Cache-Control','no-store');
+  return res.status(410).json({error:'Der Konfigurator wurde aktualisiert. Bitte lade die Buchdruckseite neu und berechne den Preis erneut.'});
+});
+app.post('/create-product-v33',async(req,res)=>{
+  let c;
+  try{
+    c=require('./konfigurator/pricing-v33').priceFor(req.body?.configuration);
+  }catch(err){
+    if(err?.status===400)return res.status(400).json({error:err.message});
+    console.error('V33 Preisvalidierung:',err?.message||err);
+    return res.status(500).json({error:'Buchpreis konnte nicht berechnet werden.'});
+  }
+  if(!c.config.extras.check && req.body?.confirmedNoCheck!==true){
+    return res.status(400).json({error:'Bitte bestätige die Bestellung ohne individuelle Qualitätskontrolle.'});
+  }
+  if(!Number.isSafeInteger(req.body?.expectedTotalCents) || req.body.expectedTotalCents!==c.totalCents){
+    return res.status(409).json({error:'Der Buchpreis hat sich geändert. Bitte lade die Seite neu.'});
+  }
+  try{
+    const result=await createProduct({
+      title:'Druckpaket: Buchdruck', price:c.totalEuros, shippingRequired:c.shippingRequired
+    });
+    const props={...c.orderProperties};
+    if(!c.config.extras.check)props['Bestätigung ohne Qualitätskontrolle']='Hinweis zur fehlenden individuellen Prüfung und Druckfreigabe bestätigt';
+    return res.status(200).json({message:'Produkt erfolgreich erstellt',produktId:result.legacyVariantId,
+      productId:result.productId,variantId:result.variantId,legacyVariantId:result.legacyVariantId,
+      totalCents:c.totalCents,orderProperties:props});
+  }catch(err){
+    console.error('V33 Produktanlage:',err?.message||err);
+    return res.status(500).json({error:'Produkt konnte nicht erstellt werden.'});
+  }
+});
+
+
 /**
  * V31 – Validierte Konfigurator-Produktanlage (getrennt vom bisherigen /create-product).
  * Keine Preise aus dem Browser übernehmen; bestehende Shop-Routen bleiben unverändert.
