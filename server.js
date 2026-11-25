@@ -761,39 +761,17 @@ const shop = "7456d9-4.myshopify.com";
   }
 });
 
-/** Konfigurator: Produkt erstellen */
-app.post("/create-product", async (req, res) => {
-  try {
-    const {
-      title,
-      price,
-      shippingRequired
-    } = req.body;
-
-    const result = await createProduct({
-      title,
-      price,
-      shippingRequired: shippingRequired === true
-    });
-
-    res.status(200).json({
-      message: "✅ Produkt erfolgreich erstellt",
-      produktId: result.legacyVariantId,
-      productId: result.productId,
-      variantId: result.variantId,
-      legacyVariantId: result.legacyVariantId,
-    });
-
-  } catch (error) {
-    console.error(
-      "❌ Fehler beim Erstellen des Produkts:",
-      error?.message || error
-    );
-
-    res.status(500).json({
-      error: "Produkt konnte nicht erstellt werden"
-    });
-  }
+/**
+ * Sicherheits-Sperre: veralteter, nicht preisvalidierter Produkt-Endpunkt.
+ * Die frühere Route übernahm title/price/shippingRequired direkt aus dem Browser.
+ * Kaufbare Druckpakete dürfen ausschließlich über /create-product-v33 erstellt werden.
+ * Achtung vor Freigabe: Prüfen, ob andere Frontends die Legacy-Route verwenden.
+ */
+app.post("/create-product", (req, res) => {
+  res.set("Cache-Control", "no-store");
+  return res.status(410).json({
+    error: "Dieser Bestellweg wurde aktualisiert. Bitte lade die Seite neu.",
+  });
 });
 
 /**
