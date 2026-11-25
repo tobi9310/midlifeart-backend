@@ -78,7 +78,7 @@ function totalBytes(files = []) {
 }
 
 /** Aktuelle AGB-Version für Nachweis und Formularprüfung */
-const AGB_VERSION = "29.09.2026";
+const AGB_VERSION = "25.11.2026";
 
 /** Helper: AGB akzeptiert? (Checkbox kann "true" oder "on" sein) */
 function isAgbAccepted(value) {
