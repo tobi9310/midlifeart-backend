@@ -54,7 +54,7 @@ async function sendBrevoMail({ to, subject, text, html, replyTo, attachments = [
     }));
   }
 
-const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+  const r = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: {
       accept: "application/json",
@@ -333,14 +333,7 @@ app.post(
   }
 );
 
-/**
- * NACHBESTELLUNG
- *
- * Diesen Block in server.js bei den Formular-Routen ergänzen,
- * z. B. direkt vor dem bestehenden Buchinserat-Formular.
- *
- * Bestehende Routen – insbesondere /upload – bleiben unverändert.
- */
+/** Nachbestellung bereits gedruckter Buchprojekte */
 app.post("/reorder-request", upload.none(), async (req, res) => {
   try {
     const {
@@ -803,131 +796,79 @@ app.post("/create-product", async (req, res) => {
   }
 });
 
-/** V33-Schutz und neue Bestellroute.
- * ACHTUNG: Den gesamten Block in server.js VOR den bisherigen
- * app.post('/create-product-v31', ...) / app.post('/create-product-v32', ...) Routen einfügen.
- * Nicht ans Dateiende setzen: sonst könnten alte Routen bereits antworten.
- * Andere Endpunkte, darunter /create-product, bleiben unangetastet.
- */
-app.post(['/create-product-v31','/create-product-v32'],(req,res)=>{
-  res.set('Cache-Control','no-store');
-  return res.status(410).json({error:'Der Konfigurator wurde aktualisiert. Bitte lade die Buchdruckseite neu und berechne den Preis erneut.'});
-});
-app.post('/create-product-v33',async(req,res)=>{
-  let c;
-  try{
-    c=require('./konfigurator/pricing-v33').priceFor(req.body?.configuration);
-  }catch(err){
-    if(err?.status===400)return res.status(400).json({error:err.message});
-    console.error('V33 Preisvalidierung:',err?.message||err);
-    return res.status(500).json({error:'Buchpreis konnte nicht berechnet werden.'});
-  }
-  if(!c.config.extras.check && req.body?.confirmedNoCheck!==true){
-    return res.status(400).json({error:'Bitte bestätige die Bestellung ohne individuelle Qualitätskontrolle.'});
-  }
-  if(!Number.isSafeInteger(req.body?.expectedTotalCents) || req.body.expectedTotalCents!==c.totalCents){
-    return res.status(409).json({error:'Der Buchpreis hat sich geändert. Bitte lade die Seite neu.'});
-  }
-  try{
-    const result=await createProduct({
-      title:'Druckpaket: Buchdruck', price:c.totalEuros, shippingRequired:c.shippingRequired
-    });
-    const props={...c.orderProperties};
-    if(!c.config.extras.check)props['Bestätigung ohne Qualitätskontrolle']='Hinweis zur fehlenden individuellen Prüfung und Druckfreigabe bestätigt';
-    return res.status(200).json({message:'Produkt erfolgreich erstellt',produktId:result.legacyVariantId,
-      productId:result.productId,variantId:result.variantId,legacyVariantId:result.legacyVariantId,
-      totalCents:c.totalCents,orderProperties:props});
-  }catch(err){
-    console.error('V33 Produktanlage:',err?.message||err);
-    return res.status(500).json({error:'Produkt konnte nicht erstellt werden.'});
-  }
-});
-
-
 /**
- * V31 – Validierte Konfigurator-Produktanlage (getrennt vom bisherigen /create-product).
- * Keine Preise aus dem Browser übernehmen; bestehende Shop-Routen bleiben unverändert.
- * Vor Livebetrieb: Modul konfigurator/pricing-v31.js bereitstellen.
+ * Buchdruck-Konfigurator V33
+ *
+ * - Aktuelle Preise ausschließlich serverseitig aus pricing-v33.js.
+ * - Für dich drucken: Druck-Verkaufspreis = WMD-Brutto / 0,65 (35 % Marge).
+ * - Mit Midlifeart verkaufen: Druck-Verkaufspreis = WMD-Brutto / 0,55 (45 % Marge).
+ * - Keine pauschalen 17 €; Qualitätskontrolle optional +29 €.
+ * - Ohne Qualitätskontrolle: keine persönliche Druckfreigabe.
+ * - Die alten V31/V32-Endpunkte bleiben bewusst gesperrt.
+ *
+ * Die Preisformel und die eigentliche Optionsvalidierung liegen zentral in
+ * konfigurator/pricing-v33.js (nutzt pricing-v31.js als Tabellenbasis).
  */
-app.post('/create-product-v31', async (req, res) => {
+app.post(["/create-product-v31", "/create-product-v32"], (req, res) => {
+  res.set("Cache-Control", "no-store");
+  return res.status(410).json({
+    error: "Der Konfigurator wurde aktualisiert. Bitte lade die Buchdruckseite neu und berechne den Preis erneut.",
+  });
+});
+
+app.post("/create-product-v33", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+
   let calculation;
   try {
-    calculation = require('./konfigurator/pricing-v31').priceFor(req.body?.configuration);
-  } catch (err) {
-    if (err?.status === 400) {
-      return res.status(400).json({ error: err.message });
+    calculation = require("./konfigurator/pricing-v33").priceFor(req.body?.configuration);
+  } catch (error) {
+    if (error?.status === 400) {
+      return res.status(400).json({ error: error.message });
     }
-    console.error('V31 Preisvalidierung:', err?.message || err);
-    return res.status(500).json({ error: 'Preisvalidierung momentan nicht verfügbar.' });
+    console.error("V33 Preisvalidierung:", error?.message || error);
+    return res.status(500).json({ error: "Buchpreis konnte nicht berechnet werden." });
   }
-  // Preisabweichungen bereits VOR der Shopify-Produktanlage stoppen.
-  // Der Browserwert ist nur eine Vergleichsangabe, niemals die Preisquelle.
-  if (!Number.isSafeInteger(req.body?.expectedTotalCents) ||
-      req.body.expectedTotalCents !== calculation.totalCents) {
-    return res.status(409).json({ error: 'Preisabweichung: Bitte den Konfigurator neu laden.' });
+
+  // Keine Pflichtbestätigung: Die Auswahl der Qualitätskontrolle wird als
+  // Bestelleigenschaft dokumentiert. Die AGB-Prüfungen anderer Formulare
+  // bleiben davon vollständig unberührt.
+  // Niemals einen vom Browser gesendeten Verkaufspreis übernehmen.
+  if (
+    !Number.isSafeInteger(req.body?.expectedTotalCents) ||
+    req.body.expectedTotalCents !== calculation.totalCents
+  ) {
+    return res.status(409).json({
+      error: "Der Buchpreis hat sich geändert. Bitte lade die Seite neu.",
+    });
   }
+
   try {
     const result = await createProduct({
-      title: 'Druckpaket: Buchdruck',
+      title: "Druckpaket: Buchdruck",
       price: calculation.totalEuros,
-      shippingRequired: calculation.shippingRequired
+      shippingRequired: calculation.shippingRequired,
     });
-    // Für die neue Frontend-Version gesicherte Daten zurückgeben.
+
+    const orderProperties = {
+      ...calculation.orderProperties,
+      Druckfreigabe: calculation.config.extras.check
+        ? "Nach Korrekturabzug durch Kunden"
+        : "Ohne persönliche Druckfreigabe",
+    };
+
     return res.status(200).json({
-      message: 'Produkt erfolgreich erstellt',
+      message: "Produkt erfolgreich erstellt",
       produktId: result.legacyVariantId,
       productId: result.productId,
       variantId: result.variantId,
       legacyVariantId: result.legacyVariantId,
       totalCents: calculation.totalCents,
-      orderProperties: calculation.orderProperties
+      orderProperties,
     });
-  } catch (err) {
-    console.error('V31 Produktanlage:', err?.message || err);
-    return res.status(500).json({ error: 'Produkt konnte nicht erstellt werden.' });
-  }
-});
-
-/**
- * Midlifeart V32 - Buchdruck inkl. Druckdatenpruefung und +17 EUR Auftragsfixkosten
- * NEUE Route V32. Bestehende Route /create-product-v31 NICHT aendern!
- * Einfuegen in server.js VOR app.listen(...), bei den anderen Produkt-Routen.
- * Voraussetzung: konfigurator/pricing-v32.js bereitgestellt.
- */
-app.post('/create-product-v32', async (req, res) => {
-  let calculation;
-  try {
-    calculation = require('./konfigurator/pricing-v32').priceFor(req.body?.configuration);
-  } catch (err) {
-    if (err?.status === 400) return res.status(400).json({ error: err.message });
-    console.error('V32 Preisvalidierung:', err?.message || err);
-    return res.status(500).json({ error: 'Buchpreis konnte nicht berechnet werden.' });
-  }
-
-  // Serverseitiger Preis bleibt verbindlich; Browser-Preis wird niemals uebernommen.
-  if (!Number.isSafeInteger(req.body?.expectedTotalCents) ||
-      req.body.expectedTotalCents !== calculation.totalCents) {
-    return res.status(409).json({ error: 'Der Buchpreis hat sich geaendert. Bitte Seite neu laden.' });
-  }
-
-  try {
-    const result = await createProduct({
-      title: 'Druckpaket: Buchdruck',
-      price: calculation.totalEuros,
-      shippingRequired: calculation.shippingRequired
-    });
-    return res.status(200).json({
-      message: 'Produkt erfolgreich erstellt',
-      produktId: result.legacyVariantId,
-      productId: result.productId,
-      variantId: result.variantId,
-      legacyVariantId: result.legacyVariantId,
-      totalCents: calculation.totalCents,
-      orderProperties: calculation.orderProperties
-    });
-  } catch (err) {
-    console.error('V32 Produktanlage:', err?.message || err);
-    return res.status(500).json({ error: 'Produkt konnte nicht erstellt werden.' });
+  } catch (error) {
+    console.error("V33 Produktanlage:", error?.message || error);
+    return res.status(500).json({ error: "Produkt konnte nicht erstellt werden." });
   }
 });
 
